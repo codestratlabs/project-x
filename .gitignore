@@ -1,0 +1,26 @@
+# secrets
+.env
+.env.*
+!.env.example
+# environments and caches
+.venv/
+__pycache__/
+*.pyc
+# data and outputs (never committed)
+dumps/
+input/
+out/
+Resources/
+coref_experiment/coref_verifier/data/
+coref_experiment/company_report/inputs/
+coref_experiment/company_report/out/
+*.duckdb
+*.xlsx
+*.csv
+*.zip
+*.pdf
+*.htm
+*.html
+# backups
+*.orig
+*.bak*
