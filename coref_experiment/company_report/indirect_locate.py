@@ -23,7 +23,7 @@ co, dirs = sys.argv[1], [Path(x) for x in sys.argv[2:]]
 HERE = Path(__file__).resolve().parent
 DATA = HERE.parent / "coref_verifier" / "data"
 META = {}
-for mf in glob.glob(str(DATA / "companies" / f"{co}__*_mentions.meta.json")):
+for mf in glob.glob(str(DATA / "companies" / f"{co}*__*_mentions.meta.json")):   # also <co>_ncsr__..., <co>_delta__...
     m = json.load(open(mf, encoding="utf-8"))
     META[Path(m["document"]).stem] = m
 SEP = r"(?:\W|<[^>]*>|&#?\w+;)+"                       # what can sit between two words in the HTML

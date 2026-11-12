@@ -249,7 +249,7 @@ IC = [("#", "#", 6), ("form", "Form", 8), ("filer", "Filed by", 28), ("filed", "
       ("page", "Page", 9), ("search", "Search text (Ctrl+F)", 34), ("link", "Source (opens at the word)", 10)]
 seen, ind = set(), []
 for r in IND:                                           # the same pronoun can be in two runs: keep one
-    k = (r["accession"], r["sentence"], r["trigger"], r["search_text"])
+    k = (r["accession"], r["search_text"], r["page"])     # same words on the same page = the same place in the filing
     if r["company_id"].startswith("C") and r["status"] == "resolved" and k not in seen:
         seen.add(k)
         ind.append(ind_row(r))
