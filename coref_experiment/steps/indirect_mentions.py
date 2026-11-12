@@ -40,8 +40,8 @@ Each paragraph is shown as:
   ALLOWED: <id> <name>; <id> <name> ...                <- the only companies you may answer with
 Lines starting with [ctx] are neighbouring paragraphs, only for finding who a pronoun points back to.
 
-For every trigger, decide which ALLOWED company the word refers to ("it", "its", "they", "their", "them" standing
-for a company), or NONE.
+For every trigger, decide which ALLOWED company the word refers to ("it", "its", "they", "their", "them", or a noun
+phrase such as "the company", "the issuer", "such company" standing for a company), or NONE.
 
 Answer with a company ONLY when the text itself shows the antecedent: the word points back to a noun in the text that
 names that company (or to its defined term such as "the Company" / "the Registrant"). Being the only company in

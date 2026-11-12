@@ -26,9 +26,12 @@ TRIGGER_RX = {
     "third_plural": re.compile(r"\b(they|their|theirs|them|themselves)\b", re.I),
     # a defined term is capitalised ("the Company"); lower-case "the corporation" is generic legal text
     "defined_term": re.compile(r"\b[Tt]he (Company|Fund|Issuer|Registrant|Partnership|Trust|Corporation)\b"),
+    # lower-case noun phrases that point back to a named company ("public information about the company's operating
+    # history", "such issuer"); case-sensitive so the capitalised defined terms above stay with the filer
+    "third_noun": re.compile(r"\b(?:[Tt]he|[Ss]uch|[Tt]his|[Tt]hat) (?:company|issuer|firm|startup)(?:['’]s)?(?![\w-])"),
 }
 FILER_RULE_TYPES = {"first_person", "defined_term"}   # resolved by rule to the filer
-LLM_TYPES = {"third_singular", "third_plural"}        # need the text to decide
+LLM_TYPES = {"third_singular", "third_plural", "third_noun"}   # need the text to decide
 
 
 def find_triggers(text: str) -> list[dict]:

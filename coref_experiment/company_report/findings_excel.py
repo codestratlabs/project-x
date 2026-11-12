@@ -229,6 +229,34 @@ allr.sort(key=lambda r: (r["filed"], r["acc"]))
 AC = [("#", "#", 6), ("kind", "Kind", 11), ("form", "Form", 8), ("filer", "Filed by", 28), ("filed", "Filing date", 11), ("asof", "As of", 11),
       ("text", "Evidence (table row or sentence, as printed)", 80), ("status", "What happened to it", 44), ("page", "Page", 9), ("link", "Source (opens at the text)", 10)]
 sheet(wb, "All evidence", AC, allr)
+
+# Indirect mentions: pronouns (it / its / they / the company ...) the model tied to the company, and the 50-filing test
+IND = rd(HERE / "out" / co / "indirect_located.csv")
+SAMPLE = "indirect_sample50"
+
+
+def ind_row(r):
+    who = (name.split(",")[0] if r["company_id"].startswith("C") else f"the filer ({r['filer']})" if r["company_id"].startswith("F")
+           else "none (no company / not this one)")
+    url = r["url"] if r["url"].lower().endswith((".htm", ".html")) else f"{r['url']}#page={r['page']}"
+    return dict(form=r["form"], filer=r["filer"], filed=r["filed"], word=r["trigger"], text=r["sentence"][:1000], answer=who,
+                conf=int(r["confidence"]) if str(r["confidence"]).isdigit() else r["confidence"], reason=r["reason"],
+                page=r["page"], search=r["search_text"], link=link(url, r["search_text"]), acc=r["accession"])
+
+
+IC = [("#", "#", 6), ("form", "Form", 8), ("filer", "Filed by", 28), ("filed", "Filing date", 11), ("word", "Word", 12),
+      ("text", "Sentence, as printed", 80), ("answer", "Refers to (model)", 22), ("conf", "Confidence", 10), ("reason", "Model's reason", 44),
+      ("page", "Page", 9), ("search", "Search text (Ctrl+F)", 34), ("link", "Source (opens at the word)", 10)]
+seen, ind = set(), []
+for r in IND:                                           # the same pronoun can be in two runs: keep one
+    k = (r["accession"], r["sentence"], r["trigger"], r["search_text"])
+    if r["company_id"].startswith("C") and r["status"] == "resolved" and k not in seen:
+        seen.add(k)
+        ind.append(ind_row(r))
+ind.sort(key=lambda r: (r["filed"], r["acc"]))
+test = sorted((ind_row(r) for r in IND if r["run"] == SAMPLE and r["decided_by"] == "llm"), key=lambda r: (r["filed"], r["acc"]))
+sheet(wb, "Indirect mentions", IC, ind)
+sheet(wb, "Indirect test (50 filings)", IC, test)
 sheet(wb, *FACTS_ARGS)
 
 # About
@@ -237,7 +265,7 @@ s.title = "About"
 s.sheet_view.showGridLines = False
 s["A1"] = f"{name}: findings and their ground truth"
 s["A1"].font = Font(name=FONT, size=16, bold=True)
-s["A2"] = "Rule-based evidence run, no language model · one sheet per finding type"
+s["A2"] = "Every number comes from rules, no language model · the language model is used only in the two Indirect sheets, to say who a pronoun refers to"
 s["A2"].font = Font(name=FONT, size=9)
 s["A4"] = "Each finding sits next to its ground truth: the exact table row, sentence or structured record it was taken from, with every value as written in the source."
 s["A4"].font = Font(name=FONT, size=10)
@@ -252,6 +280,10 @@ about = [("Holdings (filings)", "Fund filings (N-CSR, N-CSRS, N-2, 424B3, 10-Q, 
          ("Form D offerings", "SEC Form D data set (the company's own notices)", "Date of first sale, amount offered and sold, investors", "Structured record, no model", "Each value compared with the filing record, field by field"),
          ("DOL 401(k)", "Department of Labor Form 5500", "Plan participants (U.S. staff minimum)", "Structured record, no model", "Each number compared with the original DOL field"),
          ("All evidence", "Every filing that names the company", "Every mention found: each table row, iXBRL tag, N-CEN field and sentence, and what happened to it", "Scan of every filing for the name", "Status column: verified, held back (with the reason), or not a position"),
+         ("Indirect mentions", "Filings that name the company", "Sentences where it / its / they / the company points back to the company",
+          "Rule picks pronouns within 2 paragraphs of a mention; the language model (GPT-4.1) decides who each one refers to", "Model's reason and confidence shown; the sentence and link let anyone check it"),
+         ("Indirect test (50 filings)", "50 filings where the company is named in text (not tables)", "Every pronoun the model was asked about, and its answer: the company, the filer, or none",
+          "Same as Indirect mentions", "Test set: read the sentence at the link and compare with the model's answer"),
          ("Facts", "SEC filings by other companies and funds that name the company; Form N-CEN", "Valuation, revenue run-rate, funding, debt, customers, fund purchases",
           "Rules: number with its printed scale word, tied to the company by position in the sentence; N-CEN XML fields", "The number and scale word are written in the sentence; the metric word sits next to it")]
 for j, row in enumerate(about, 7):
@@ -270,9 +302,12 @@ for k, (a, b) in enumerate([("Side by side", "Every value the pipeline produced 
     s.cell(k, 2, b).font = Font(name=FONT, size=9)
 for col, wd in zip("ABCDEF", (22, 44, 40, 34, 8, 60)):
     s.column_dimensions[col].width = wd
+first = ["All evidence", "Indirect mentions", "Indirect test (50 filings)", "About"]
+wb._sheets = [wb[n] for n in first] + [x for x in wb._sheets if x.title not in first]
+wb.active = 0
 wb.calculation = CalcProperties(fullCalcOnLoad=True)
 dest.mkdir(parents=True, exist_ok=True)
 out = dest / f"{name.split(',')[0].replace(' ', '_')}_findings.xlsx"
 wb.save(out)
-print(out, {"holdings": len(hold), "facts": len(facts), "nport": len(npr), "formd": len(fdr), "dol": len(dol), "all evidence": len(allr),
+print(out, {"holdings": len(hold), "facts": len(facts), "nport": len(npr), "formd": len(fdr), "dol": len(dol), "all evidence": len(allr), "indirect": len(ind), "indirect test": len(test),
             "holdings not matched": sum(1 for h in hold if h["match"].startswith("No"))})

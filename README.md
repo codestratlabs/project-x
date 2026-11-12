@@ -17,7 +17,7 @@ coref_experiment/
   company_report/
     run_company.py                     one command per company (all steps below)
     model_config/<company>.json        everything company-specific (name regex, splits, ...)
-    evidence_*.py, validate_all.py, locate.py, final_excels.py, findings_excel.py
+    evidence_*.py, validate_all.py, locate.py, pages.py, indirect_locate.py, final_excels.py, findings_excel.py
     build_report.py, model_*.py          report (kept, not used in the current flow)
     nport.py, build_inputs_*.py        structured sources (N-PORT, Form D, DOL)
 ```
@@ -32,7 +32,13 @@ coref_experiment/
    → `evidence_holdings --use-validation` → `evidence_facts` → `evidence_relationships` → `locate` (page and search text)
    → `final_excels` / `findings_excel`.
 4. **Structured sources, no model.** N-PORT, Form D and DOL are read as structured records.
-5. **Indirect mentions, LLM.** `steps/run_indirect_all.py` (always uses `--filer-implicit off`).
+5. **Indirect mentions, LLM.** `steps/run_indirect_all.py <company> <out dir> [--only <list of .meta.json>]`
+   (always `--filer-implicit off`). Trigger words: it/its/they/their/them and "the company", "the issuer", "such company";
+   only those within 2 paragraphs of a company mention go to the model; we/our/the Company go to the filer by rule.
+6. **Indirect links.** `company_report/indirect_locate.py <company> <indirect out dirs...>` adds the printed page and a
+   highlight link per pronoun (`pages.py` is the page logic shared with `locate.py`).
+7. **Findings workbook.** `company_report/findings_excel.py <company> "<Name>" <out folder>`: sheets All evidence,
+   Indirect mentions, Indirect test (50 filings), About, then holdings, N-PORT, Form D, DOL, Facts.
 
 ## Setup
 
