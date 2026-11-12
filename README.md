@@ -18,6 +18,7 @@ coref_experiment/
     run_company.py                     one command per company (all steps below)
     model_config/<company>.json        everything company-specific (name regex, splits, ...)
     evidence_*.py, validate_all.py, locate.py, final_excels.py, findings_excel.py
+    build_report.py, model_*.py          report (kept, not used in the current flow)
     nport.py, build_inputs_*.py        structured sources (N-PORT, Form D, DOL)
 ```
 
