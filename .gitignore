@@ -24,3 +24,8 @@ coref_experiment/company_report/out/
 # backups
 *.orig
 *.bak*
+# data folders linked in locally (symlinks, so no trailing slash)
+coref_experiment/coref_verifier/data
+coref_experiment/company_report/inputs
+coref_experiment/company_report/out
+company-finder/.venv

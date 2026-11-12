@@ -12,7 +12,18 @@ from pathlib import Path
 
 from build_inputs import write
 
-UA = os.environ["SEC_USER_AGENT"]  # e.g. "yourorg-research you@yourorg.com"
+def _sec_user_agent() -> str:
+    """SEC asks clients to identify themselves. Read SEC_USER_AGENT from the environment or company-finder/.env."""
+    if os.environ.get("SEC_USER_AGENT"):
+        return os.environ["SEC_USER_AGENT"]
+    env = Path(__file__).resolve().parents[2] / "company-finder" / ".env"
+    for line in (env.read_text(encoding="utf-8").splitlines() if env.exists() else []):
+        if line.strip().startswith("SEC_USER_AGENT="):
+            return line.split("=", 1)[1].strip().strip('"\'')
+    raise SystemExit(f"SEC_USER_AGENT not set (export it or add it to {env})")
+
+
+UA = _sec_user_agent()
 
 
 def _ix(t: str, key: str):

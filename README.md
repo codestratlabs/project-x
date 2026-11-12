@@ -40,8 +40,7 @@ coref_experiment/
 cd company-finder
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt requests duckdb
-cp ../.env.example .env        # fill OPENROUTER_API_KEY and SEC_USER_AGENT
-export SEC_USER_AGENT="<org>-research <contact email>"
+cp ../.env.example .env        # fill OPENROUTER_API_KEY and SEC_USER_AGENT (or export them)
 ```
 
 Data is not in this repo: filings (`dumps/`), the Form D and N-PORT DuckDB files, and all outputs (`out/`).
