@@ -52,6 +52,11 @@ steps += [("clinical trials", lambda: r.trials(raw, out)), ("FDA", lambda: r.fda
 ev = HERE / "out" / co / "evidence"
 if args.evidence:
     py, name_ = sys.executable, args.name
+    if np_csv.exists() and not args.skip_inputs:  # evidence_build and validate_all read the N-PORT price marks: build them before the chain
+        try:
+            print("N-PORT marks:", a.marks(str(np_csv), cfg, out), flush=True)
+        except Exception as exc:
+            print("MISSING N-PORT marks:", f"{type(exc).__name__}: {exc}", flush=True)
     chain = ([] if args.skip_scan else [["evidence_tables.py", co, "--folders", *folders, *([f"{co}_delta"] if (dumps / f"{co}_delta_manifest.csv").exists() else []), "--workers", "2"]]) + [
         ["evidence_build.py", co], ["evidence_holdings.py", co], ["validate_all.py", co], ["evidence_holdings.py", co, "--use-validation"], ["evidence_facts.py", co, name_],
         ["evidence_relationships.py", co, name_, "--folders", *folders, *([f"{co}_delta"] if (dumps / f"{co}_delta_manifest.csv").exists() else [])],
@@ -67,8 +72,8 @@ missing = []
 for name, fn in ([] if args.skip_inputs else steps):
     try:
         print(f"{name}: {fn()}", flush=True)
-    except Exception as e:                        # a source this company does not have: the report keeps a placeholder for what depends on it
-        missing.append(f"{name}: {type(e).__name__}: {e}")
+    except Exception as exc:                      # a source this company does not have: the report keeps a placeholder for what depends on it
+        missing.append(f"{name}: {type(exc).__name__}: {exc}")   # not `e`: that name is build_inputs_evidence
         print("MISSING", missing[-1], flush=True)
 link = out / "sources"
 if not link.exists() and raw.exists():

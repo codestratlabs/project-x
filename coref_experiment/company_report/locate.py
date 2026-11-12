@@ -125,7 +125,7 @@ for n, (acc, items) in enumerate(sorted(need.items())):
                         if not st:                     # a row without an amount: search for its printed name
                             st = re.sub(r"\s*\([a-z0-9]{1,3}\)|[*†‡#]", "", (e.get("name") or e["raw"].split("|")[0])).strip()[:50].rsplit(" ", 1)[0] if len((e.get("name") or "")) > 50 else re.sub(r"\s*\([a-z0-9]{1,3}\)|[*†‡#]", "", (e.get("name") or e["raw"].split("|")[0])).strip()
                         res.update(page=page_at(t, br, pos), search_text=st, prefix=prefix_of(e["raw"], st) if vals else "",
-                                   where=f"table row {int(e['row']) + 1}" if e["method"] == "table" else "text block")
+                                   where=f"table row {int(str(e['row']).split('-')[0]) + 1}" if e["method"] == "table" else "text block")
             res["times_in_filing"] = cache.get("plain", "").count(res["search_text"]) if res["search_text"] and cache.get("plain") else ""
             rows[it["evidence_id"]] = res
         elif kind == "p":

@@ -15,7 +15,8 @@ ev = HERE / "out" / co / "evidence"
 cfg = json.loads((HERE / "model_config" / f"{co}.json").read_text(encoding="utf-8"))
 day_, ratio = cfg.get("split_date", "0"), cfg.get("split_ratio", 1)
 P = list(csv.DictReader(open(ev / "parsed_rows.csv", encoding="utf-8")))
-np_ = list(csv.DictReader(open(HERE.parents[2] / "dumps" / f"{co}_nport" / "nport_holdings.csv", encoding="utf-8")))
+np_path = HERE.parents[2] / "dumps" / f"{co}_nport" / "nport_holdings.csv"
+np_ = list(csv.DictReader(open(np_path, encoding="utf-8"))) if np_path.exists() else []   # no N-PORT file: rows are graded without it
 by = collections.defaultdict(list)
 for r in np_:
     by[r["report_date"]].append((float(r["value_usd"] or 0), float(r["shares"] or r["par_or_units"] or 0), r["series"] or r["registrant"], r["asset_cat"], r["accession"], r["cik"].lstrip("0")))
@@ -24,7 +25,8 @@ for d_, xs in by.items():
     for x in xs:
         if x[1]:
             by_shares[round(x[1])].append((x[0], d_))
-marks = {r["month"]: float(r["median_price"]) for r in csv.DictReader(open(HERE / "inputs" / co / "data" / "nport_price_monthly.csv", encoding="utf-8"))}
+mk_path = HERE / "inputs" / co / "data" / "nport_price_monthly.csv"
+marks = {r["month"]: float(r["median_price"]) for r in csv.DictReader(open(mk_path, encoding="utf-8"))} if mk_path.exists() else {}   # no marks: the per-share test is skipped
 
 
 def f(x):
@@ -89,6 +91,18 @@ for r in P:
             else:
                 tier = "B stated"
     out.append({**r, "tier": tier, "why": why})
+# the name pattern also matches look-alikes ("Horizon3 Investment Management LLP" for Horizon3 AI): a filing where company-finder dropped
+# every mention as another organisation is set aside; a filing the finder never saw keeps its rows (finder_verdicts.py)
+sys.path.insert(0, str(HERE))
+from finder_verdicts import lookalikes        # noqa: E402
+_dumps = HERE.parents[2] / "dumps"
+LOOK = lookalikes(cfg.get("dump_folders") or [co] + sorted(p.name[:-13] for p in _dumps.glob(f"{co}_*_manifest.csv")))
+n_look = 0
+for r in out:
+    if r["accession"] in LOOK and r["tier"] != "not a position":
+        r["tier"], r["why"] = "not a position", LOOK[r["accession"]]
+        n_look += 1
+print(f"look-alike filings set aside: {len(LOOK)}; table rows: {n_look}")
 # a table with a row confirmed by N-PORT has its unit proven for the other rows of that table
 proven = {(r["accession"], r["table"]) for r in out if r["tier"] == "A N-PORT"} | {(r["accession"], r["header"]) for r in out if r["tier"] == "A N-PORT"}
 for r in out:
@@ -128,7 +142,8 @@ for r in out:
 import hashlib
 for r in out:
     r["evidence_id"] = "E" + hashlib.sha1("|".join((r["accession"], str(r["table"]), str(r["row"]), r["name"], r["method"])).encode()).hexdigest()[:10]
-head = ["evidence_id"] + list(P[0]) + ["nport_series", "nport_asset_cat", "nport_accession", "nport_note", "qty_usd", "cost_usd", "value_usd", "commitment_usd", "report_date", "tier", "why"]
+cols = list(P[0]) if P else next(csv.reader(open(ev / "parsed_rows.csv", encoding="utf-8")), [])   # no rows found: still write the file
+head = ["evidence_id"] + cols + ["nport_series", "nport_asset_cat", "nport_accession", "nport_note", "qty_usd", "cost_usd", "value_usd", "commitment_usd", "report_date", "tier", "why"]
 with open(ev / "evidence_rows.csv", "w", newline="", encoding="utf-8") as fh:
     w = csv.DictWriter(fh, head, extrasaction="ignore")
     w.writeheader()

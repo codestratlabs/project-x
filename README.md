@@ -6,6 +6,10 @@ The numbers come from code (string match plus table parsing), not from a model. 
 ## Layout
 
 ```
+tools/                                 getting the data (SEC client: User-Agent, 5 requests/s, retries)
+  download_filings.py                  EDGAR full-text search on the config's names -> dumps/<company>/ + manifest
+  build_formd_db.py                    the company's own Form D notices -> input/formd/formd.duckdb
+  make_companies_file.py               model_config/<company>.json -> the finder's companies file
 company-finder/                        finds mentions of a company in filings (string match)
   company_finder.py                    command-line entry point
   company_finder/                      package: loader, matchers, extract, output, sec
@@ -18,16 +22,24 @@ coref_experiment/
     run_company.py                     one command per company (all steps below)
     model_config/<company>.json        everything company-specific (name regex, splits, ...)
     evidence_*.py, validate_all.py, locate.py, pages.py, indirect_locate.py, final_excels.py, findings_excel.py
-    build_report.py, model_*.py          report (kept, not used in the current flow)
+    layout_v2.py                       second table reader, for rows evidence_tables holds back for their layout
+    finder_verdicts.py                 filings where company-finder dropped every mention (look-alike names)
+    build_report.py, model_*.py        report, run last by run_company (with --evidence: no model output)
     nport.py, build_inputs_*.py        structured sources (N-PORT, Form D, DOL)
 ```
 
 ## Flow
 
-1. **Download and match.** `company-finder` scans the filings and writes `<company>_mentions.csv`.
+1. **Download and match.** `tools/download_filings.py --config <company>` fetches the filings into `dumps/`,
+   `tools/build_formd_db.py --config <company>` builds the Form D database, `nport.py list/download/build` the N-PORT rows.
+   `company-finder` scans the filings and writes `<company>_mentions.csv`; with `--llm-disambiguate` it also drops
+   look-alike names (another organisation's name) and lists them in `<out>_dropped.csv`. The name-tail rule only
+   hints such names by default (`drop_name_tail_matches: true` in a `--config` file drops them by rule).
 2. **Prepare.** `prepare_targeted.py <company>` lines up each filing with its mentions.
 3. **Evidence, no model.** `run_company.py <company> --cik ... --name ... --evidence` runs:
-   `evidence_tables` (reads tables, iXBRL, N-CEN XML, PDF lines) → `evidence_build` (grades rows against N-PORT)
+   `evidence_tables` (reads tables, iXBRL, N-CEN XML, PDF lines; a row held back for its layout gets a second reading
+   by `layout_v2`, and a row's date needs both readers to agree) → `evidence_build` (grades rows against N-PORT,
+   sets aside look-alike filings)
    → `evidence_holdings` → `validate_all` (every number checked against the filing text: printed, unit, date, sums)
    → `evidence_holdings --use-validation` → `evidence_facts` → `evidence_relationships` → `locate` (page and search text)
    → `final_excels` / `findings_excel`.
@@ -45,11 +57,12 @@ coref_experiment/
 ```
 cd company-finder
 python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt requests duckdb
+.venv/bin/pip install -r requirements.txt
 cp ../.env.example .env        # fill OPENROUTER_API_KEY and SEC_USER_AGENT (or export them)
 ```
 
-Data is not in this repo: filings (`dumps/`), the Form D and N-PORT DuckDB files, and all outputs (`out/`).
+Data is not in this repo: filings (`dumps/`), the Form D and N-PORT DuckDB files, and all outputs (`out/`). The folder
+above this checkout is the data root: `dumps/` and `input/` sit there, next to `project-x/`.
 
 ## Example
 

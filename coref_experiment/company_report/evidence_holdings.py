@@ -65,7 +65,8 @@ def acq_date(r: dict) -> str:
 
 
 SERIES_OF = collections.defaultdict(set)          # registrant CIK -> its fund series names, from Form N-PORT
-for x in csv.DictReader(open(HERE.parents[2] / "dumps" / f"{co}_nport" / "nport_holdings.csv", encoding="utf-8")):
+_np = HERE.parents[2] / "dumps" / f"{co}_nport" / "nport_holdings.csv"
+for x in (csv.DictReader(open(_np, encoding="utf-8")) if _np.exists() else []):   # no N-PORT file: holders stay the filer
     SERIES_OF[x["cik"].lstrip("0")].add(x["series"] or x["registrant"])
 
 

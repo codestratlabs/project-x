@@ -64,7 +64,8 @@ def f(x):
 SCALE = re.compile(r"in\s+thousands|\(\s*000|000\s*[’'`]?s\b|\$\s?000|in\s+millions|\(\s*\$?\s*(?:in\s+)?millions?\s*\)|thousands of|millions of|\(\s*\$?\s*thousands\s*\)|\$\s*thousands|\(\s*\$?\s*millions\s*\)", re.I)
 import json
 cfg = json.loads((HERE / "model_config" / f"{co}.json").read_text(encoding="utf-8"))
-MARK = {r["month"]: float(r["median_price"]) for r in csv.DictReader(open(HERE / "inputs" / co / "data" / "nport_price_monthly.csv", encoding="utf-8"))}
+_mk = HERE / "inputs" / co / "data" / "nport_price_monthly.csv"
+MARK = {r["month"]: float(r["median_price"]) for r in csv.DictReader(open(_mk, encoding="utf-8"))} if _mk.exists() else {}   # no marks: per_share_ok is skipped
 
 
 def per_share_ok(h: dict) -> bool:
@@ -121,7 +122,7 @@ for n, (acc, hs) in enumerate(sorted(by_acc.items())):
                 a = int(e["table"])
                 z = t.find("</table>", a)
                 trs = re.findall(r"<tr\b[^>]*>(.*?)</tr>", t[a:z], re.S)
-                ri = int(e["row"])
+                ri = int(str(e["row"]).split("-")[0])      # '12-2': the second dated value column of row 12
                 row = " | ".join(txt(tr) for tr in trs[ri:ri + 2]) if ri < len(trs) else ""
             else:
                 a = int(e["row"])

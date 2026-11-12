@@ -17,7 +17,7 @@ from .disambiguate import disambiguate_common_words
 from .llm import load_env_file
 from .match import CompanyMatcher
 from .mention import dedupe_output, dedupe_passages
-from .output import build_report, format_table, write_csv, write_json
+from .output import build_report, format_table, write_csv, write_dropped_csv, write_json
 from .runner import discover, load_prior_hit_pages, run, run_llm_pass
 
 
@@ -44,8 +44,8 @@ def build_parser() -> argparse.ArgumentParser:
                         "--dedupe-output (default ON), not by this flag")
     p.add_argument("--dedupe-output", action=argparse.BooleanOptionalAction, default=True,
                    help="DEFAULT ON. After mentions are built (and again after --llm), "
-                        "collapse multiple company_ids on the same document+page+char "
-                        "span to ONE row whose canonical legal form matches the matched "
+                        "collapse multiple company_ids on the same document+unit+char "
+                        "span (unit = page / text block / table cell) to ONE row whose canonical legal form matches the matched "
                         "text (bare BlackRock -> BLACKROCK). Never groups by matched_text "
                         "alone; spanless LLM rows stay unmerged. Different pages stay "
                         "separate. Does not merge Master Inc/Limited. "
@@ -53,7 +53,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dedupe-passages", action=argparse.BooleanOptionalAction, default=True,
                    help="DEFAULT ON. Once a company's name or any alias matched a "
                         "paragraph, drop its other hits in that same paragraph "
-                        "(same document+page): one row per company per paragraph. "
+                        "(same document + page / text block / table row): one row per "
+                        "company per paragraph or table row. "
                         "Other surfaces go to extras.also_matched; mention counts "
                         "still include every hit. Different companies in one "
                         "paragraph stay separate. --no-dedupe-passages keeps every hit")
@@ -103,6 +104,10 @@ def build_parser() -> argparse.ArgumentParser:
                         "(default 18; 0 = no pacing). New OpenRouter accounts are capped at 20")
     p.add_argument("--llm-disambiguate-min-confidence", type=int, default=None,
                    help="a 'yes' below this confidence (0-100) is treated as 'no' (default 50)")
+    p.add_argument("--allow-unverified", action="store_true",
+                   help="with --llm-disambiguate: exit 0 even when provider/transport errors "
+                        "(SSL, auth, 5xx after retries) left mentions unverified. Default: "
+                        "write the output, then exit 3 so a pipeline does not use unchecked rows")
     p.add_argument("--min-score", type=float, default=0.0,
                    help="drop mentions scoring below this (ambiguous words at sentence start score 60)")
     p.add_argument("--ocr", action="store_true", help="OCR PDF pages with little/no text (needs tesseract)")
@@ -172,6 +177,8 @@ def main(argv: list[str] | None = None) -> int:
         cfg.llm_disambiguate_max_rpm = max(0, args.llm_disambiguate_max_rpm)
     if args.llm_disambiguate_min_confidence is not None:
         cfg.llm_disambiguate_min_confidence = args.llm_disambiguate_min_confidence
+    if args.allow_unverified:
+        cfg.llm_disambiguate_allow_unverified = True
     if args.context_chars is not None:
         cfg.context_max_chars = args.context_chars
 
@@ -309,8 +316,11 @@ def main(argv: list[str] | None = None) -> int:
         report = build_report(mentions, _documents(),
                               _meta(True, {"llm": round(t_llm, 4)}))
 
+    disambig_failed, disambig_cause = 0, ""  # mentions left unverified by provider errors
+    llm_dropped: list = []
     if cfg.llm_disambiguate_common_words:
         t3 = time.perf_counter()
+        before_llm = list(mentions)
         disambig_warnings: list[str] = []
         disambig_stats: dict = {}
         mentions = disambiguate_common_words(
@@ -322,6 +332,7 @@ def main(argv: list[str] | None = None) -> int:
             stats=disambig_stats, max_rpm=cfg.llm_disambiguate_max_rpm)
         t_disambig = time.perf_counter() - t3
         kept_ids = {id(m) for m in mentions}
+        llm_dropped = [m for m in before_llm if id(m) not in kept_ids]
         for r in results:
             r.mentions = [m for m in r.mentions if id(m) in kept_ids]
         report = build_report(mentions, _documents(),
@@ -337,7 +348,25 @@ def main(argv: list[str] | None = None) -> int:
                   f"LLM and were kept unchecked (extras.llm_disambiguation.status="
                   f"'unverified'). Rerun, or lower --llm-disambiguate-workers.",
                   file=sys.stderr)
+        disambig_failed = disambig_stats.get("provider_errors", 0)
+        disambig_cause = next((w.rsplit("): ", 1)[-1] for w in disambig_warnings
+                               if "after provider error" in w), "")
     _emit(report)
+
+    # Matches removed by the name-tail rule (and by --llm-disambiguate) are written
+    # and counted, never lost silently. Printed even with --quiet.
+    rule_dropped = [m for r in results for m in r.dropped]
+    hinted = sum(1 for m in mentions if (m.extras or {}).get("name_tail"))
+    if args.out and args.format == "csv":
+        dp = write_dropped_csv([("name_tail_rule", m) for m in rule_dropped]
+                               + [("llm_disambiguate", m) for m in llm_dropped], args.out)
+        where = f" (see {dp})"
+    else:
+        where = ""
+    if rule_dropped or hinted or llm_dropped:
+        print(f"name-tail rule dropped {len(rule_dropped)} match(es); {hinted} kept match(es) "
+              f"carry a name_tail hint; --llm-disambiguate dropped {len(llm_dropped)}{where}",
+              file=sys.stderr)
 
     if not args.quiet and (args.out or args.format != "table"):
         print(format_table(report, max_mentions=0), file=sys.stderr)
@@ -348,6 +377,12 @@ def main(argv: list[str] | None = None) -> int:
               f"({'cache' if report['meta']['cache_hit'] else 'built'}), "
               f"extract+match {t_match:.3f}s{extra}]",
               file=sys.stderr)
+    if disambig_failed and not cfg.llm_disambiguate_allow_unverified:
+        print(f"ERROR: llm_disambiguate: {disambig_failed} mention(s) were left unverified by "
+              f"provider/transport errors (first: {disambig_cause[:300] or '?'}). Output was "
+              f"written but is NOT checked; exiting 3. Fix the cause and rerun, or pass "
+              f"--allow-unverified to accept unchecked rows.", file=sys.stderr)
+        return 3
     return 1 if all(r.error for r in results) else 0
 
 
