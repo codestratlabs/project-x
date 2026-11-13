@@ -68,27 +68,62 @@ NAME = re.compile(json.loads((HERE / "model_config" / f"{co}.json").read_text(en
 
 
 def prefix_of(raw: str, needle: str) -> str:
-    """The text printed just before the search text in the same row, so a link lands on this row even when the number
-    appears elsewhere in the filing."""
+    """The text printed just before the search text in the same cell, so a link lands on this row even when the number
+    appears elsewhere in the filing. Only the same cell: a browser matches a prefix only inside the block that holds the
+    text, so the end of the cell before would make the link fail."""
     cells = [c.strip() for c in raw.split("|")]
-    for i, c in enumerate(cells):
+    for c in cells:
         if needle and needle in c:
             before = c[:c.find(needle)].strip(" $(")
-            if before:
-                return " ".join(before.split()[-3:])
-            prev = next((x for x in reversed(cells[:i]) if x and x not in ("$", ")", "%")), "")
-            return " ".join(re.sub(r"\s+", " ", prev).split()[-3:])
+            return " ".join(before.split()[-3:]) if before else ""
     return ""
+
+
+def name_candidates(text: str) -> list:
+    """Words around the company name as printed, longest first. The word that holds the name is kept whole: a name inside a
+    longer word ('GalaxyPlusFundHorizon3FeederFund577LLCMember') is never split by added spaces."""
+    m = NAME.search(text)
+    if not m:
+        return [text[:40]]
+    s = text.rfind(" ", 0, m.start()) + 1
+    e = text.find(" ", m.end())
+    e = len(text) if e < 0 else e
+    a, word, b = text[:s].split(), text[s:e], text[e:].split()
+    out = []
+    for na, nb in ((3, 2), (2, 1), (1, 1), (0, 1), (1, 0), (0, 0)):
+        c = " ".join((a[-na:] if na else []) + [word] + b[:nb]).strip(" ,;:")
+        if c and c not in out:
+            out.append(c)
+    return out
 
 
 def name_words(text: str) -> str:
     """A few words around the company name, as printed, to search for."""
-    m = NAME.search(text)
-    if not m:
-        return text[:40]
-    a = text[:m.start()].split()[-3:]
-    b = text[m.end():].split()[:2]
-    return " ".join(a + [m[0]] + b).strip(" ,;:")
+    return name_candidates(text)[0]
+
+
+HIDDEN = re.compile(r"(?is)<ix:header\b.*?</ix:header>|<head\b.*?</head>|<(script|style)\b.*?</\1>")
+VBLOCK = re.compile(r"<(?:/?(?:p|div|tr|td|th|li|h[1-6]|table|center|section|blockquote|pre)\b[^>]*|br\s*/?)>", re.I)
+
+
+def blocks_of(t: str) -> list:
+    """The text of each block a browser shows (paragraph, table cell, line), hidden XBRL data left out. A link highlights
+    its text only when the text is printed inside one of these blocks."""
+    out = []
+    for part in VBLOCK.sub("\x00", HIDDEN.sub(" ", t)).split("\x00"):
+        s = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", "", part)).replace("\xa0", " ").replace("\u200b", "")).strip()
+        if s:
+            out.append(s)
+    return out
+
+
+def fit(cands: list, blocks: list) -> str:
+    """The first candidate printed inside one block, so a browser can highlight it; '' (the link just opens the filing) when none is."""
+    for c in cands:
+        c = re.sub(r"\s+", " ", c or "").strip()
+        if c and any(c in b for b in blocks):
+            return c
+    return ""
 for n, (acc, items) in enumerate(sorted(need.items())):
     paths = [p for p in local.get(acc, []) if p.exists()]
     cache = {}
@@ -99,6 +134,7 @@ for n, (acc, items) in enumerate(sorted(need.items())):
             t = re.sub(r"</?(?:table|tr|td|th)\b", lambda x: x[0].lower(), p.read_text(encoding="utf-8", errors="ignore"), flags=re.I)
             cache[p] = (t, [m.start() for m in BREAK.finditer(t)])
             cache["plain"] = txt(t)
+            cache["blocks"] = blocks_of(t)
         return cache[p]
     for kind, it in items:
         if kind == "h":
@@ -122,8 +158,10 @@ for n, (acc, items) in enumerate(sorted(need.items())):
                     else:
                         pos = int(e["table"]) if e["method"] == "table" else int(e["row"])
                         st = printed_number(e["raw"], vals) if vals else ""
-                        if not st:                     # a row without an amount: search for its printed name
-                            st = re.sub(r"\s*\([a-z0-9]{1,3}\)|[*†‡#]", "", (e.get("name") or e["raw"].split("|")[0])).strip()[:50].rsplit(" ", 1)[0] if len((e.get("name") or "")) > 50 else re.sub(r"\s*\([a-z0-9]{1,3}\)|[*†‡#]", "", (e.get("name") or e["raw"].split("|")[0])).strip()
+                        name = (e.get("name") or e["raw"].split("|")[0]).strip()
+                        head = re.split(r"\s*\([a-z0-9]{1,3}\)|[*†‡#]", name)[0].strip()      # the name as printed, up to a footnote mark
+                        cut = lambda s: s[:50].rsplit(" ", 1)[0] if len(s) > 50 else s      # noqa: E731
+                        st = fit([st, cut(head), cut(name), head, name], cache["blocks"])    # a row without an amount: its printed name
                         res.update(page=page_at(t, br, pos), search_text=st, prefix=prefix_of(e["raw"], st) if vals else "",
                                    where=f"table row {int(str(e['row']).split('-')[0]) + 1}" if e["method"] == "table" else "text block")
             res["times_in_filing"] = cache.get("plain", "").count(res["search_text"]) if res["search_text"] and cache.get("plain") else ""
@@ -138,6 +176,7 @@ for n, (acc, items) in enumerate(sorted(need.items())):
                 if p and str(it["pos"]).isdigit():
                     t, br = text_of(p)
                     res["page"] = page_at(t, br, int(it["pos"]))
+                    res["search_text"] = fit(name_candidates(snt), cache["blocks"])   # '' for hidden XBRL data: the link opens the filing
             res["times_in_filing"] = cache.get("plain", "").count(res["search_text"]) if res["search_text"] and cache.get("plain") else ""
             rows[res["id"]] = res
         else:
