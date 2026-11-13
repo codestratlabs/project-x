@@ -254,7 +254,13 @@ for r in IND:                                           # the same pronoun can b
         seen.add(k)
         ind.append(ind_row(r))
 ind.sort(key=lambda r: (r["filed"], r["acc"]))
-test = sorted((ind_row(r) for r in IND if r["run"] == SAMPLE and r["decided_by"] == "llm"), key=lambda r: (r["filed"], r["acc"]))
+seen_t, test = set(), []                                # the 50-filing test: only the places the model tied to the company
+for r in IND:
+    k = (r["accession"], r["search_text"], r["page"])
+    if r["run"] == SAMPLE and r["company_id"].startswith("C") and r["status"] == "resolved" and k not in seen_t:
+        seen_t.add(k)
+        test.append(ind_row(r))
+test.sort(key=lambda r: (r["filed"], r["acc"]))
 sheet(wb, "Indirect mentions", IC, ind)
 sheet(wb, "Indirect test (50 filings)", IC, test)
 sheet(wb, *FACTS_ARGS)
@@ -282,7 +288,7 @@ about = [("Holdings (filings)", "Fund filings (N-CSR, N-CSRS, N-2, 424B3, 10-Q, 
          ("All evidence", "Every filing that names the company", "Every mention found: each table row, iXBRL tag, N-CEN field and sentence, and what happened to it", "Scan of every filing for the name", "Status column: verified, held back (with the reason), or not a position"),
          ("Indirect mentions", "Filings that name the company", "Sentences where it / its / they / the company points back to the company",
           "Rule picks pronouns within 2 paragraphs of a mention; the language model (GPT-4.1) decides who each one refers to", "Model's reason and confidence shown; the sentence and link let anyone check it"),
-         ("Indirect test (50 filings)", "50 filings where the company is named in text (not tables)", "Every pronoun the model was asked about, and its answer: the company, the filer, or none",
+         ("Indirect test (50 filings)", "50 filings where the company is named in text (not tables)", "Only the sentences where a pronoun refers to the company",
           "Same as Indirect mentions", "Test set: read the sentence at the link and compare with the model's answer"),
          ("Facts", "SEC filings by other companies and funds that name the company; Form N-CEN", "Valuation, revenue run-rate, funding, debt, customers, fund purchases",
           "Rules: number with its printed scale word, tied to the company by position in the sentence; N-CEN XML fields", "The number and scale word are written in the sentence; the metric word sits next to it")]
