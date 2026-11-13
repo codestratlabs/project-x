@@ -9,6 +9,7 @@ certifi>=2023.7        # CA bundle for OpenRouter HTTPS (llm.ssl_context)
 requests>=2.31         # tools/sec_http.py, build_inputs*.py
 duckdb>=1.0            # Form D and N-PORT databases
 pandas>=2.0            # tools/build_formd_db.py
+pypdfium2>=4.0         # evidence_tables.py reads PDF filings
 python-pptx>=0.6.23
 pytesseract>=0.3.10   # optional: OCR (also needs the tesseract binary)
 Pillow>=10            # used with pytesseract
