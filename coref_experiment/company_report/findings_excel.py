@@ -17,6 +17,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter as L
 from openpyxl.workbook.properties import CalcProperties
+from openpyxl.worksheet.hyperlink import Hyperlink
 
 csv.field_size_limit(10**9)
 co, name, dest = sys.argv[1], sys.argv[2], Path(sys.argv[3])
@@ -90,7 +91,8 @@ def sheet(wb, title, cols, rows, side=()):
             if k in side:
                 c.fill = PatternFill("solid", fgColor=BLUE if side[k] == "p" else GREEN)
             if k == "link" and v:
-                c.hyperlink, c.value = v, "open"
+                base, _, frag = v.partition("#")       # the jump-to text goes in the link's location field: Numbers breaks a "#" inside the address
+                c.hyperlink, c.value = Hyperlink(ref=c.coordinate, target=base, location=frag or None), "open"
                 c.font = Font(name=FONT, size=9, color="0563C1", underline="single")
     w.freeze_panes = "B2"
     w.auto_filter.ref = f"A1:{L(len(cols))}{len(rows) + 1}"
