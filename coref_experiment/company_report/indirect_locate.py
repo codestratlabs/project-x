@@ -27,6 +27,7 @@ for mf in glob.glob(str(DATA / "companies" / f"{co}*__*_mentions.meta.json")):  
     m = json.load(open(mf, encoding="utf-8"))
     META[Path(m["document"]).stem] = m
 SEP = r"(?:\W|<[^>]*>|&#?\w+;)+"                       # what can sit between two words in the HTML
+NAME = re.compile(json.loads((HERE / "model_config" / f"{co}.json").read_text(encoding="utf-8"))["company"]["name_regex"], re.I)
 
 
 def snippet(sentence: str, context: str, start: int, word: str) -> str:
@@ -38,6 +39,8 @@ def snippet(sentence: str, context: str, start: int, word: str) -> str:
         off = m.start() if m else 0
     before = sentence[:off].split()[-5:]
     after = sentence[off:].split()[:4]
+    if before and after and off > 0 and not sentence[off - 1].isspace():   # the word sits inside a longer one: "first-of-its-kind"
+        before, after = before[:-1], [before[-1] + after[0]] + after[1:]
     return " ".join(before + after).strip(" ,;:(")
 
 
@@ -60,14 +63,15 @@ for d in dirs:
         html_ = doc.suffix.lower() in (".htm", ".html") and doc.exists()
         t, br = load(doc) if html_ else ("", [])
         plain = norm(txt(t)) if html_ else ""
+        names = [x.start() for x in NAME.finditer(t)] if html_ else []
         for r in keep:
             sn = snippet(r["sentence"], r["context"], int(r["start"] or 0), r["trigger"])
             page, found, times = (f"{r['page']} (counted)" if html_ else r["page"]), "", ""
             if html_:
                 toks = re.findall(r"\w+", sn)
-                hit = re.search(r"\b" + SEP.join(map(re.escape, toks)) + r"\b", t, re.S) if toks else None
-                if hit:
-                    page = page_at(t, br, hit.start())
+                hits = [h.start() for h in re.finditer(r"\b" + SEP.join(map(re.escape, toks)) + r"\b", t, re.S)] if toks else []
+                if hits:   # the same words can be printed more than once (a slide footer): take the copy next to the company's name
+                    page = page_at(t, br, min(hits, key=lambda h: min((abs(h - q) for q in names), default=0)))
                 found = "yes" if norm(sn) in plain else "no"
                 times = plain.count(norm(sn))
             rows.append({"run": d.name, "form": m["form"], "filer": m["filer"], "filed": m["file_date"], "accession": m["accession"],

@@ -29,7 +29,7 @@ for man in sorted((ROOT / "dumps").glob(f"{co}*_manifest.csv")):
     f = man.name.replace("_manifest.csv", "")
     for r in csv.DictReader(open(man, encoding="utf-8")):
         local[r["accession"]].append(ROOT / "dumps" / f / r["file"])
-from pages import BREAK, FOOT, page_at, txt   # noqa: E402,F401
+from pages import BREAK, FOOT, breaks_of, page_at, txt   # noqa: E402,F401
 
 
 def printed_number(raw: str, vals: list) -> str:
@@ -132,7 +132,7 @@ for n, (acc, items) in enumerate(sorted(need.items())):
         if p not in cache:
             cache.clear()
             t = re.sub(r"</?(?:table|tr|td|th)\b", lambda x: x[0].lower(), p.read_text(encoding="utf-8", errors="ignore"), flags=re.I)
-            cache[p] = (t, [m.start() for m in BREAK.finditer(t)])
+            cache[p] = (t, breaks_of(t))
             cache["plain"] = txt(t)
             cache["blocks"] = blocks_of(t)
         return cache[p]
