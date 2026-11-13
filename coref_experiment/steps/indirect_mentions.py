@@ -36,7 +36,9 @@ FILER: {filer} (id {fid}). The filer is the company that submits the document.
 
 Each paragraph is shown as:
   [P<n>|p<page>] text
-  TRIGGERS: T1 "it" in "<its sentence>" ; T2 ...      <- the words to resolve (they are all in that paragraph)
+  TRIGGERS: T1 "it": "...text with the exact word marked [[it]]..." ; T2 ...   <- the words to resolve
+            Each trigger is ONE occurrence: the one between [[ ]]. Two triggers with the same word in the same sentence
+            are different occurrences and can refer to different things: judge each at its own [[ ]] position.
   ALLOWED: <id> <name>; <id> <name> ...                <- the only companies you may answer with
 Lines starting with [ctx] are neighbouring paragraphs, only for finding who a pronoun points back to.
 
@@ -53,7 +55,15 @@ Answer NONE when:
   general (law, accounting policy, "a corporation may ... its certificate of incorporation");
 - the word refers to a product, technology, data, a person or group of people, a thing or a place;
 - the word refers to a company that is not in ALLOWED;
+- the word could refer to more than one company, or to the filer, a fund, a portfolio, a stake or investment, a
+  security, or a group of companies ("partners like A, B and C ... their");
+- the text describes companies in general ("a company that recently completed an IPO ... its investment
+  prospects", "such companies ... its IPO"), even when a named company is discussed nearby;
+- the word is in a table header or column name ("Nature of its Principal Business");
 - you cannot tell.
+Grammar: in "X is working with Y to deepen its ...", "X partnered with Y to expand its ...", a possessive in the
+main or purpose clause belongs to the subject X, not to the object Y. "may prevent the Fund from achieving its
+objective, even if Y reverses its move": the first "its" is the Fund, the second is Y.
 A plural word (they, their, them) names a company only when it stands for that one company alone. When it stands for
 several parties, or for parties that are not in ALLOWED (underwriters, customers, directors, affiliates), answer NONE.
 Examples: "Zhang was CEO of A until it was acquired by B" -> "it" is A (answer A's id if A is ALLOWED);
@@ -62,7 +72,10 @@ When unsure, answer NONE with a low confidence.
 
 Return one row for EVERY trigger of every paragraph, in this form:
   para (integer), trigger_no (integer, the number after T), reason (one short sentence naming the antecedent or why
-  none), referent_id (an ALLOWED id or "NONE"), confidence (0-100).
+  none), referent_id (an ALLOWED id or "NONE"), confidence (0-100),
+  antecedent (the exact words in the text, copied character for character, that the word points back to, e.g.
+  "Databricks, Inc." or "the private company Databricks"; "" when NONE). The antecedent is the EARLIER words that
+  NAME the company, never the trigger word itself ("the company" is not an antecedent of "the company's").
 Return JSON only: {{"references": [...]}}."""
 
 SCHEMA = {
@@ -71,15 +84,67 @@ SCHEMA = {
         "type": "object", "additionalProperties": False, "required": ["references"],
         "properties": {"references": {"type": "array", "items": {
             "type": "object", "additionalProperties": False,
-            "required": ["para", "trigger_no", "reason", "referent_id", "confidence"],
+            "required": ["para", "trigger_no", "reason", "referent_id", "confidence", "antecedent"],
             "properties": {
                 "para": {"type": "integer"}, "trigger_no": {"type": "integer"}, "reason": {"type": "string"},
-                "referent_id": {"type": "string"}, "confidence": {"type": "integer"}}}}},
+                "referent_id": {"type": "string"}, "confidence": {"type": "integer"}, "antecedent": {"type": "string"}}}}},
     },
 }
 
+VERIFY_SYSTEM = """You check pronoun resolutions in text from a financial/legal filing. Each item gives a text with ONE
+word marked [[like this]] and a company. Answer YES only if the marked word certainly refers to that company alone.
+Answer NO if it refers to anything else (the filer, a fund, a stake, a product, a person, another company, a group of
+companies, companies in general), if it is a dummy "it", if it is in a table header, or if it could refer to more than
+one thing. When in doubt, NO. Return JSON only: {"items": [{"n": <item number>, "answer": "YES" or "NO", "reason": "<short>"}]}."""
+
+VERIFY_SCHEMA = {
+    "name": "pronoun_check", "strict": True,
+    "schema": {
+        "type": "object", "additionalProperties": False, "required": ["items"],
+        "properties": {"items": {"type": "array", "items": {
+            "type": "object", "additionalProperties": False, "required": ["n", "answer", "reason"],
+            "properties": {"n": {"type": "integer"}, "answer": {"type": "string", "enum": ["YES", "NO"]},
+                           "reason": {"type": "string"}}}}},
+    },
+}
+
+
+def marked(text: str, start, word: str, before: int = 260, after: int = 120) -> str:
+    """The text around one trigger occurrence, with that occurrence marked [[...]]."""
+    a = int(start or 0)
+    b = a + len(word)
+    if text[a:b].lower() != word.lower():
+        a = text.lower().find(word.lower())
+        a, b = (a, a + len(word)) if a >= 0 else (0, 0)
+    return (("..." if a > before else "") + text[max(0, a - before):a] + "[[" + text[a:b] + "]]" + text[b:b + after]
+            + ("..." if b + after < len(text) else ""))
+
+
+def _norm(x: str) -> str:
+    return " ".join(x.replace("’", "'").replace("“", '"').replace("”", '"').lower().split())
+
+
+def antecedent_ok(scope: s.Scope, pid: int, r: dict, ref: str, ant: str, window: int) -> str:
+    """Code check of the model's answer: the antecedent it names is printed before the word (in this paragraph or the
+    ones above it) or in the same sentence, and it contains the company's name. Returns "" if fine, else the problem."""
+    a = _norm(ant)
+    if not a:
+        return "no antecedent given"
+    p = scope.by_id[pid]
+    before = " ".join(scope.by_id[q].text for q in range(pid - window, pid) if q in scope.by_id) + " " + p.text[:int(r["start"] or 0)]
+    near = " ".join(s.SENT_SPLIT.split(before.strip())[-3:])     # the sentence so far and the two sentences before it
+    if a not in _norm(near) and a not in _norm(r["sentence"]):
+        return f"antecedent '{ant}' is not in the same sentence or the two sentences before the word"
+    cid = ref[1:] if ref.startswith("C") else ref
+    names = {_norm(x).rstrip(".").replace(", inc", "").replace(" inc", "") for x in scope.aliases.get(cid, set()) | {scope.names.get(cid, "")}}
+    names = {n for n in names if len(n) >= 3}
+    if not any(n in a for n in names):
+        return f"antecedent '{ant}' does not name the company"
+    return ""
+
+
 ALL_COLS = ["id", "page", "paragraph_no", "trigger", "trigger_type", "start", "sentence", "company", "company_id", "decided_by",
-            "status", "confidence", "reason", "context"]
+            "status", "confidence", "reason", "antecedent", "context"]
 MAIN_COLS = ["page", "paragraph_no", "trigger", "trigger_type", "count", "company", "company_id", "decided_by",
              "confidence", "reason", "sentence", "context"]
 
@@ -125,8 +190,8 @@ def build_chunks(scope: s.Scope, units: dict, window: int, chunk_tokens: int) ->
         near = s.listed_near(scope, pid, window)
         allowed = {scope.cid(k): v for k, v in near.items()}
         allowed[fid] = scope.filer_name
-        before, after = s.context_lines(scope, pid)
-        tl = "; ".join(f'T{r["no"]} "{r["trigger"]}" in "{r["sentence"][:160]}"' for r in units[pid])
+        before, after = s.context_lines(scope, pid, tail=True)
+        tl = "; ".join(f'T{r["no"]} "{r["trigger"]}": "{marked(p.text, r["start"], r["trigger"])}"' for r in units[pid])
         al = "; ".join(f"{k} {v}{' (the filer)' if k == fid else ''}" for k, v in allowed.items())
         block = "\n".join(x for x in (before, p.line(), f"TRIGGERS: {tl}", f"ALLOWED: {al}", after) if x)
         t = c.est_tokens(block)
@@ -154,7 +219,10 @@ def main() -> int:
                          "(the Company ...) within the window (default), also we/our/us, or never")
     ap.add_argument("--filer-rows", choices=["paragraph", "occurrence"], default="paragraph",
                     help="main CSV: one row per paragraph for the filer's we/our/the Company, or one per occurrence")
-    ap.add_argument("--min-confidence", type=int, default=50)
+    ap.add_argument("--min-confidence", type=int, default=50, help="for answers that name the filer")
+    ap.add_argument("--min-confidence-company", type=int, default=90, help="for answers that name a listed company")
+    ap.add_argument("--no-verify", action="store_true", help="skip the second (yes/no) check of listed-company answers")
+    ap.add_argument("--verify-model", default="anthropic/claude-opus-5.5", help="a different model for the second check")
     ap.add_argument("--chunk-tokens", type=int, default=4000)
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--rpm", type=int, default=18)
@@ -222,10 +290,32 @@ def main() -> int:
                 r["status"] = "none"
                 if ref != "NONE":
                     r["reason"] = f"(answer '{ref}' is not an allowed company) " + r["reason"]
-            elif conf < a.min_confidence:
+            elif conf < (a.min_confidence if ref == fid else a.min_confidence_company):
                 r.update(status="none", reason=f"(low confidence {conf}) " + r["reason"])
+            elif ref != fid and (bad := antecedent_ok(scope, pid, r, ref, ans.get("antecedent", ""), a.window)):
+                r.update(status="rejected_check", reason=f"(code check: {bad}) " + r["reason"])
             else:
-                r.update(status="resolved", company=names.get(ref, ref), company_id=ref)
+                r.update(status="resolved", company=names.get(ref, ref), company_id=ref, antecedent=ans.get("antecedent", ""))
+
+    # ---- second check: every answer that names a listed company is asked again as a yes/no question; only YES stays
+    todo = [(pid, r) for pid, lst in units.items() for r in lst if r["status"] == "resolved" and r["company_id"] != fid]
+    if todo and not a.no_verify:
+        for k in range(0, len(todo), 25):
+            part = todo[k:k + 25]
+            ctx = "\n\n".join(f"ITEM {n}: company = {r['company']}\n" + (s.context_lines(scope, pid, after=0, tail=True)[0] + "\n" if pid - 1 in scope.by_id else "")
+                              + marked(scope.by_id[pid].text, r["start"], r["trigger"], 600, 200) for n, (pid, r) in enumerate(part, 1))
+            res = c.call_llm(ctx, a.verify_model, max_tokens=4000, timeout=a.timeout, limiter=limiter, label=f"check {k // 25 + 1}",
+                             system=VERIFY_SYSTEM, schema=VERIFY_SCHEMA)
+            results.append((res, [], True))
+            try:
+                got = {x["n"]: x for x in json.loads(res.content).get("items", [])}
+            except (ValueError, AttributeError, TypeError):
+                got = {}
+            for n, (pid, r) in enumerate(part, 1):
+                x = got.get(n)
+                if not x or x.get("answer") != "YES":
+                    r.update(status="rejected_check", company="", company_id="",
+                             reason=f"(second check: {x.get('reason', 'no answer') if x else 'no answer'}) " + r["reason"])
 
     # ---- outputs
     s.OUT_DIR.mkdir(exist_ok=True)
@@ -264,6 +354,7 @@ def main() -> int:
         "step": "indirect_mentions", "pdf": Path(a.pdf).name, "model": a.model, "run_started_at": started,
         "mentions_file": a.mentions, "filer": scope.filer_name, "listed_companies": len(scope.names),
         "window": a.window, "filer_implicit": a.filer_implicit, "min_confidence": a.min_confidence, "filer_rows": a.filer_rows,
+        "min_confidence_company": a.min_confidence_company, "second_check": "" if a.no_verify else a.verify_model,
         "trigger_words": len(rows), "by_type": dict(by_type), "by_status": dict(st),
         "main_csv_rows": len(main_rows), "llm_paragraphs": len(units), "calls": len(chunks),
         "wall_seconds": round(wall, 1), **c.totals(calls),

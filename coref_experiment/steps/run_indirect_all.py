@@ -13,7 +13,7 @@ par = int(sys.argv[sys.argv.index("--parallel") + 1]) if "--parallel" in sys.arg
 D = Path(__file__).resolve().parents[1] / "coref_verifier" / "data"
 metas = sorted(glob.glob(str(D / "companies" / f"{co}*__*_mentions.meta.json")))
 if "--only" in sys.argv:                               # a chosen subset, e.g. a test sample
-    keep = {Path(x).name for x in open(sys.argv[sys.argv.index("--only") + 1]).read().split()}
+    keep = {Path(x.strip()).name for x in open(sys.argv[sys.argv.index("--only") + 1]).read().splitlines() if x.strip()}   # names can contain spaces ("DEF 14A")
     metas = [x for x in metas if Path(x).name in keep]
 out.mkdir(parents=True, exist_ok=True)
 log = open(out / "run.log", "a")

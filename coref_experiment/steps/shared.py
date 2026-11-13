@@ -159,8 +159,9 @@ def listed_near(scope: Scope, pid: int, window: int) -> dict:
     return out
 
 
-def context_lines(scope: Scope, pid: int, before: int = 2, after: int = 1, cut: int = 350) -> tuple[str, str]:
-    """(text of previous paragraphs, text of next paragraphs) as [ctx] lines, for resolving pronouns."""
-    prev = [f"[ctx] {scope.by_id[q].text[:cut]}" for q in range(pid - before, pid) if q in scope.by_id]
+def context_lines(scope: Scope, pid: int, before: int = 2, after: int = 1, cut: int = 350, tail: bool = False) -> tuple[str, str]:
+    """(text of previous paragraphs, text of next paragraphs) as [ctx] lines, for resolving pronouns. tail=True shows the
+    END of each previous paragraph (the words closest to the pronoun) instead of its start."""
+    prev = [f"[ctx] {(scope.by_id[q].text[-cut:] if tail else scope.by_id[q].text[:cut])}" for q in range(pid - before, pid) if q in scope.by_id]
     nxt = [f"[ctx] {scope.by_id[q].text[:cut]}" for q in range(pid + 1, pid + after + 1) if q in scope.by_id]
     return "\n".join(prev), "\n".join(nxt)
