@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Stand-in Form D database, for when the team's formd.duckdb is not available. Same four tables build_report.py and
-build_inputs.py query (companies, filings, related_persons, offerings), filled from Form D XML notices only.
+"""Stand-in Form D database, for when the team's formd.duckdb is not available. Same four tables as the team's
+database (companies, filings, related_persons, offerings); pipeline/sources/records.py reads companies and filings, filled from Form D XML notices only.
 
     export SEC_USER_AGENT="your-org contact@your-domain"
-    python tools/build_formd_db.py databricks                       # CIK from model_config/databricks.json
+    python tools/build_formd_db.py databricks                       # CIK from pipeline/config/databricks.json
     python tools/build_formd_db.py databricks --xml-dir dumps/databricks/D --out /tmp/formd.duckdb [--no-fetch]
 
 * The company's own D and D/A notices are listed from its EDGAR filing index (data.sec.gov submissions); any not already in
   --xml-dir are downloaded there (raw primary_doc.xml). Filing date and file number come from that index.
 * Other issuers' notices found in --xml-dir (an SPV whose Form D names the company) are added as their own companies, with
-  category 'fund' when the notice says "Pooled Investment Fund", so build_report.py lists them as SPVs.
+  category 'fund' when the notice says "Pooled Investment Fund", so they can be told apart as SPVs.
 * An amendment restates its offering: offerings and company totals use the latest notice of each file number.
 Never overwrites an existing database unless --force.
 """
@@ -97,7 +97,7 @@ def main() -> None:
     ap.add_argument("--config", default="")
     ap.add_argument("--cik", default="", help="override the config's CIK")
     ap.add_argument("--xml-dir", action="append", default=[], help="folder(s) of Form D XML named <accession>_*.xml (default: dumps/<co>/D and D-A)")
-    ap.add_argument("--out", default=str(sec.ROOT / "input" / "formd" / "formd.duckdb"))
+    ap.add_argument("--out", default=str(sec.P.FORMD_DB))
     ap.add_argument("--no-fetch", action="store_true", help="use only the XML already in --xml-dir")
     ap.add_argument("--force", action="store_true", help="replace an existing database file")
     a = ap.parse_args()
@@ -111,7 +111,7 @@ def main() -> None:
     if not cik:
         raise SystemExit("no CIK: set company.cik in the config or pass --cik")
     cik = f"{int(cik):010d}"
-    dirs = [Path(d) for d in a.xml_dir] or [sec.ROOT / "dumps" / a.company / f for f in ("D", "D-A")]
+    dirs = [Path(d) for d in a.xml_dir] or [sec.P.DUMPS / a.company / f for f in ("D", "D-A")]
     files = {}
     for d in dirs:
         for p in sorted(d.glob("*.xml")) if d.exists() else []:
@@ -143,7 +143,7 @@ def main() -> None:
         filings.append(f)
     if not filings:
         raise SystemExit(f"no Form D notices for CIK {cik} (looked in {', '.join(map(str, dirs))})")
-    if not any(f["cik"] == cik for f in filings):   # build_report.py would stop later with 'CIK not in formd.duckdb'
+    if not any(f["cik"] == cik for f in filings):   # records.py would stop later with 'CIK not in formd.duckdb'
         raise SystemExit(f"no XML Form D notice of CIK {cik} (paper-era, non-XML or not fetched); other issuers only: "
                          + ", ".join(sorted({f"{f['issuer_name']} ({f['cik']})" for f in filings}))[:500])
     out.parent.mkdir(parents=True, exist_ok=True)

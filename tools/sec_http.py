@@ -8,17 +8,22 @@ import threading
 import time
 from pathlib import Path
 
+import sys
+
 import requests            # verifies TLS with certifi
 
-ROOT = Path(__file__).resolve().parents[2]          # project root: holds dumps/ and input/ (same as run_company.py)
-CONFIG = Path(__file__).resolve().parents[1] / "coref_experiment" / "company_report" / "model_config"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pipeline"))
+import paths as P  # noqa: E402  every data folder (PX_DATA, PX_DUMPS ...)
+
+ROOT = P.DATA                                       # holds dumps/ and input/
+CONFIG = P.CONFIG
 _lock, _next, _s = threading.Lock(), [0.0], []
 
 
 def user_agent() -> str:
-    """SEC_USER_AGENT from the environment or company-finder/.env, the same as nport.py and build_inputs_more.py."""
+    """SEC_USER_AGENT from the environment or company-finder/.env, the same as nport.py."""
     ua = os.environ.get("SEC_USER_AGENT", "").strip()
-    env = Path(__file__).resolve().parents[1] / "company-finder" / ".env"
+    env = P.ENV_FILE
     for line in ([] if ua or not env.exists() else env.read_text(encoding="utf-8").splitlines()):
         if line.strip().startswith("SEC_USER_AGENT="):
             ua = line.split("=", 1)[1].strip().strip('"\'')

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Company-finder input CSV (id, canonical_name, aliases, description) from model_config/<co>.json.
+"""Company-finder input CSV (id, canonical_name, aliases, description) from pipeline/config/<co>.json.
 
-    python tools/make_companies_file.py outreach                      # -> coref_experiment/Targeted_pdf/run1/input/outreach_input.csv
-    python tools/make_companies_file.py outreach --out companies.csv [--config model_config/outreach.json] [--name "..."]
+    python tools/make_companies_file.py outreach                      # -> <PX_FINDER_ROOT>/input/outreach_input.csv
+    python tools/make_companies_file.py outreach --out companies.csv [--config pipeline/config/outreach.json] [--name "..."]
 
 * id: "C" + company.cik (10 digits), else <co>. canonical_name: the legal name -- company.legal_name, else --name (the
   --name run_company.py uses, "Get Heal, Inc."), else the config "name". aliases: the config "name" and
@@ -23,8 +23,10 @@ import re
 import sys
 from pathlib import Path
 
-CONFIG = Path(__file__).resolve().parents[1] / "coref_experiment" / "company_report" / "model_config"
-TARGETED = Path(__file__).resolve().parents[1] / "coref_experiment" / "Targeted_pdf"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pipeline"))
+import paths as P  # noqa: E402
+
+CONFIG = P.CONFIG
 COLUMNS = ["id", "canonical_name", "aliases", "description"]
 
 
@@ -71,9 +73,9 @@ def merge(out: Path, r: dict) -> tuple:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("company", help="config name: model_config/<company>.json")
-    ap.add_argument("--config", default="", help="default: coref_experiment/company_report/model_config/<company>.json")
-    ap.add_argument("--out", default="", help="default: coref_experiment/Targeted_pdf/run1/input/<company>_input.csv")
+    ap.add_argument("company", help="config name: pipeline/config/<company>.json")
+    ap.add_argument("--config", default="", help="default: pipeline/config/<company>.json")
+    ap.add_argument("--out", default="", help="default: <PX_FINDER_ROOT>/input/<company>_input.csv")
     ap.add_argument("--name", default="", help="legal name for canonical_name when the config has no company.legal_name")
     ap.add_argument("--force", action="store_true", help="rewrite an existing file from the config (default: only fill its description)")
     a = ap.parse_args()
@@ -81,7 +83,7 @@ def main():
     if not p.exists():
         sys.exit(f"not configured: {p} does not exist")
     r = row(a.company, json.loads(p.read_text(encoding="utf-8")), a.name)
-    out = Path(a.out) if a.out else TARGETED / "run1" / "input" / f"{a.company}_input.csv"
+    out = Path(a.out) if a.out else P.FINDER_ROOT / "input" / f"{a.company}_input.csv"
     out.parent.mkdir(parents=True, exist_ok=True)
     columns, rows = COLUMNS, [r]
     if out.exists() and not a.force:

@@ -1,56 +1,69 @@
 # project-x
 
-Cited evidence about private companies, built from public records: SEC filings that mention the company, Form N-PORT, Form D and DOL Form 5500.
-The numbers come from code (string match plus table parsing), not from a model. A model is used only in the last step, to find indirect mentions.
+Cited evidence about private companies, built from public records: SEC filings that mention the company, Form N-PORT,
+Form D and DOL Form 5500. Every number comes from code (string match, table rules, structured records), not from a model.
+A language model is used in one place only: to decide who "it", "its", "they" or "the company" refers to (indirect mentions).
+
+The output for a company is one workbook, `<Name>_findings.xlsx`: All evidence, Indirect mentions, Indirect test,
+About, Holdings (filings), N-PORT holdings, Form D offerings, DOL 401(k). Every row has the value as written in the
+source and a link that opens the filing at that text.
 
 ## Layout
 
 ```
-tools/                                 getting the data (SEC client: User-Agent, 5 requests/s, retries)
-  download_filings.py                  EDGAR full-text search on the config's names -> dumps/<company>/ + manifest
-  build_formd_db.py                    the company's own Form D notices -> input/formd/formd.duckdb
-  make_companies_file.py               model_config/<company>.json -> the finder's companies file
-company-finder/                        finds mentions of a company in filings (string match)
-  company_finder.py                    command-line entry point
-  company_finder/                      package: loader, matchers, extract, output, sec
-coref_experiment/
-  common.py, approach_d_relations.py   shared library
-  coref_verifier/tools/prepare_targeted.py   prepares one company's filings from the mention lists
-  steps/indirect_mentions.py           indirect mentions (pronouns near a company mention), LLM step
-  steps/run_indirect_all.py            runs indirect_mentions over all prepared filings
-  company_report/
-    run_company.py                     one command per company (all steps below)
-    model_config/<company>.json        everything company-specific (name regex, splits, ...)
-    evidence_*.py, validate_all.py, locate.py, pages.py, indirect_locate.py, final_excels.py, findings_excel.py
-    layout_v2.py                       second table reader, for rows evidence_tables holds back for their layout
-    finder_verdicts.py                 filings where company-finder dropped every mention (look-alike names)
-    build_report.py, model_*.py        report, run last by run_company (with --evidence: no model output)
-    nport.py, build_inputs_*.py        structured sources (N-PORT, Form D, DOL)
+tools/                          getting the data (SEC client: User-Agent, 5 requests/s, retries)
+  download_filings.py           EDGAR full-text search on the config's names -> dumps/<company>/ + manifest
+  build_formd_db.py             the company's own Form D notices -> input/formd/formd.duckdb
+  make_companies_file.py        pipeline/config/<company>.json -> company-finder's companies file
+  sec_http.py                   shared SEC access
+company-finder/                 finds mentions of a company in filings (string match; optional look-alike check)
+pipeline/
+  paths.py                      every folder the pipeline reads or writes (environment variables, see below)
+  config/<company>.json         everything company-specific (name regex, aliases, CIK, split, 401(k) plan ...)
+  run_company.py                one command per company: records -> evidence -> prepare -> indirect -> workbook
+  sources/nport.py              Form N-PORT: list, download, parse, build nport_holdings.csv
+  sources/records.py            N-PORT price marks, DOL Form 5500 rows, Form D offerings
+  evidence/                     rule-based evidence (no model)
+    evidence_tables.py          reads every filing: table rows, iXBRL tags, N-CEN XML, PDF lines, sentences that name the company
+    second_reader.py            second table reader for rows the first one holds back for their layout
+    evidence_build.py           grades rows (N-PORT, printed unit), sets aside look-alike filings (finder_verdicts.py)
+    evidence_holdings.py        one row per position
+    validate_all.py             every number checked against the filing text: printed, unit, date, sums
+    evidence_facts.py           dated numbers stated in sentences
+    locate.py                   printed page and search text of every row
+  prepare_filings.py            each filing with its company-finder mentions (input of the indirect step)
+  indirect/                     indirect mentions (language model)
+    run_all.py                  runs indirect_mentions.py over all prepared filings of a company
+    indirect_mentions.py        trigger words -> rules -> model (GPT-4.1) -> code check -> second model
+    scope.py, mentions_map.py, text_llm.py   paragraphs, company mentions per paragraph, model calls
+    locate_mentions.py          printed page and highlight link of each indirect mention
+  pages.py                      printed page numbers (shared by locate.py and locate_mentions.py)
+  findings_excel.py             the findings workbook
 ```
 
-## Flow
+## Folders
 
-1. **Download and match.** `tools/download_filings.py --config <company>` fetches the filings into `dumps/`,
-   `tools/build_formd_db.py --config <company>` builds the Form D database, `nport.py list/download/build` the N-PORT rows.
-   `company-finder` scans the filings and writes `<company>_mentions.csv`; with `--llm-disambiguate` it also drops
-   look-alike names (another organisation's name) and lists them in `<out>_dropped.csv`. The name-tail rule only
-   hints such names by default (`drop_name_tail_matches: true` in a `--config` file drops them by rule).
-2. **Prepare.** `prepare_targeted.py <company>` lines up each filing with its mentions.
-3. **Evidence, no model.** `run_company.py <company> --cik ... --name ... --evidence` runs:
-   `evidence_tables` (reads tables, iXBRL, N-CEN XML, PDF lines; a row held back for its layout gets a second reading
-   by `layout_v2`, and a row's date needs both readers to agree) → `evidence_build` (grades rows against N-PORT,
-   sets aside look-alike filings)
-   → `evidence_holdings` → `validate_all` (every number checked against the filing text: printed, unit, date, sums)
-   → `evidence_holdings --use-validation` → `evidence_facts` → `evidence_relationships` → `locate` (page and search text)
-   → `final_excels` / `findings_excel`.
-4. **Structured sources, no model.** N-PORT, Form D and DOL are read as structured records.
-5. **Indirect mentions, LLM.** `steps/run_indirect_all.py <company> <out dir> [--only <list of .meta.json>]`
-   (always `--filer-implicit off`). Trigger words: it/its/they/their/them and "the company", "the issuer", "such company";
-   only those within 2 paragraphs of a company mention go to the model; we/our/the Company go to the filer by rule.
-6. **Indirect links.** `company_report/indirect_locate.py <company> <indirect out dirs...>` adds the printed page and a
-   highlight link per pronoun (`pages.py` is the page logic shared with `locate.py`).
-7. **Findings workbook.** `company_report/findings_excel.py <company> "<Name>" <out folder>`: sheets All evidence,
-   Indirect mentions, Indirect test (50 filings), About, then holdings, N-PORT, Form D, DOL, Facts.
+Data is never in this repo. Folders are set in `pipeline/paths.py` and can be moved with environment variables:
+
+| Variable | Default | Holds |
+|---|---|---|
+| `PX_DATA` | the folder above this checkout | `dumps/` and `input/formd/formd.duckdb` |
+| `PX_DUMPS` | `$PX_DATA/dumps` | downloaded filings and their manifests, `<company>_nport/nport_holdings.csv` |
+| `PX_FINDER_ROOT` | `$PX_DATA` | company-finder runs: `out/<folder>*/` (or `<run>/out/<folder>_*/`) and `input/<company>_input.csv` |
+| `PX_WORK` | `<repo>/work` | everything the pipeline builds: `prepared/`, `inputs/<company>/data/`, `out/<company>/` |
+
+## Flow for one company
+
+1. **Config.** Write `pipeline/config/<company>.json` (copy an existing one: name, aliases, `name_regex`, CIK).
+2. **Download.**
+   `tools/download_filings.py <company>` (and `<company>_ncsr` with `--term` for fund reports),
+   `tools/build_formd_db.py <company>`,
+   `pipeline/sources/nport.py list|download|build --dump $PX_DUMPS/<company>_nport --out $PX_DUMPS/<company>_nport/nport_holdings.csv`.
+3. **String match.** `tools/make_companies_file.py <company>`, then company-finder on each dump folder, writing
+   `$PX_FINDER_ROOT/out/<folder>/<folder>_mentions.csv` (with `--llm-disambiguate` it also drops look-alike names and
+   lists them in `<folder>_dropped.csv`).
+4. **Everything else.** `pipeline/run_company.py <company> --cik ... --name "..." --dest <folder> [--indirect]`:
+   records -> evidence (no model) -> prepare -> indirect (only with `--indirect`, costs money) -> workbook.
 
 ## Setup
 
@@ -61,12 +74,16 @@ python3 -m venv .venv
 cp ../.env.example .env        # fill OPENROUTER_API_KEY and SEC_USER_AGENT (or export them)
 ```
 
-Data is not in this repo: filings (`dumps/`), the Form D and N-PORT DuckDB files, and all outputs (`out/`). The folder
-above this checkout is the data root: `dumps/` and `input/` sit there, next to `project-x/`.
-
 ## Example
 
 ```
-company-finder/.venv/bin/python coref_experiment/company_report/run_company.py databricks \
-  --cik 0001587468 --name "Databricks, Inc." --evidence
+company-finder/.venv/bin/python pipeline/run_company.py databricks \
+  --cik 0001587468 --name "Databricks, Inc." --dest ../Databricks_Verification --indirect
+```
+
+Steps can be run on their own, e.g. the indirect step for one filing without a model call:
+
+```
+company-finder/.venv/bin/python pipeline/indirect/indirect_mentions.py <filing> --mentions <filing>_mentions.csv \
+  --filer "<filer>" --filer-implicit off --dry-run
 ```

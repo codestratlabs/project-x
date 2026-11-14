@@ -7,13 +7,10 @@
 __pycache__/
 *.pyc
 # data and outputs (never committed)
+work/
 dumps/
 input/
 out/
-Resources/
-coref_experiment/coref_verifier/data/
-coref_experiment/company_report/inputs/
-coref_experiment/company_report/out/
 *.duckdb
 *.xlsx
 *.csv
@@ -25,7 +22,5 @@ coref_experiment/company_report/out/
 *.orig
 *.bak*
 # data folders linked in locally (symlinks, so no trailing slash)
-coref_experiment/coref_verifier/data
-coref_experiment/company_report/inputs
-coref_experiment/company_report/out
+work
 company-finder/.venv
