@@ -4,10 +4,10 @@
   nport.py list     [COMPANY_TERM] --dump DIR [--term T ...]   EDGAR full-text search -> DIR/manifest.csv
   nport.py download --dump DIR                  fetches each primary_doc.xml (gzipped), resumes, ~5 requests/s
   nport.py parse    [COMPANY_TERM] --dump DIR --out FILE.csv     one row per position that names the company
-  nport.py export-db [COMPANY_TERM] --dump DIR --db nport_team.duckdb [--config model_config/<co>.json]
+  nport.py export-db [COMPANY_TERM] --dump DIR --db nport_team.duckdb [--config pipeline/config/<co>.json]
                                                 team database rows whose issuer name matches -> DIR/duckdb_rows.csv
-  nport.py build    [COMPANY_TERM] --dump DIR --out FILE.csv     merged, amendments applied, classified (input to build_report --nport-csv)
-The config is --config, else model_config/<co>.json with <co> from a DIR named <co>_nport or from the term's words.
+  nport.py build    [COMPANY_TERM] --dump DIR --out FILE.csv     merged, amendments applied, classified (read by the evidence steps and the findings workbook)
+The config is --config, else pipeline/config/<co>.json with <co> from a DIR named <co>_nport or from the term's words.
 list searches every name form: the term, the config "name" and company.aliases, and each --term (a filing that prints only
 "Acme Corporation" is missed by a search for "Acme Corp"); hits are merged by accession and manifest column search_terms says
 which forms found each filing. The name pattern of parse, export-db and build is the config company.name_regex, else the
@@ -19,8 +19,11 @@ import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # pipeline/: paths.py
+import paths as px  # noqa: E402
+
 UA = {}
-CONFIG = Path(__file__).resolve().parent / "model_config"
+CONFIG = px.CONFIG
 FORMS = ["NPORT-P", "NPORT-P/A"]
 _lock, _next = threading.Lock(), [0.0]
 
@@ -29,7 +32,7 @@ def _sec_user_agent() -> str:
     """SEC_USER_AGENT from the environment or company-finder/.env ("" when neither has it)."""
     if os.environ.get("SEC_USER_AGENT", "").strip():
         return os.environ["SEC_USER_AGENT"].strip()
-    env = Path(__file__).resolve().parents[2] / "company-finder" / ".env"
+    env = px.ENV_FILE
     for line in (env.read_text(encoding="utf-8").splitlines() if env.exists() else []):
         if line.strip().startswith("SEC_USER_AGENT="):
             return line.split("=", 1)[1].strip().strip('"\'')
@@ -298,7 +301,7 @@ DB_COLS = ["series_id", "fund_house", "cik", "report_date", "filing_date", "sub_
 
 
 def config_path(a) -> Path | None:
-    """--config, else model_config/<co>.json with <co> from a dump folder named <co>_nport or from the term's words."""
+    """--config, else pipeline/config/<co>.json with <co> from a dump folder named <co>_nport or from the term's words."""
     if a.config:
         if not Path(a.config).exists():
             sys.exit(f"--config: {a.config} not found")
@@ -379,7 +382,7 @@ if __name__ == "__main__":
     ap.add_argument("--out", default="nport.csv")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--db", default="", help="export-db: the team N-PORT database (table holdings)")
-    ap.add_argument("--config", default="", help="model_config/<co>.json; its company.name_regex is the name pattern (default: found from DIR or the term)")
+    ap.add_argument("--config", default="", help="pipeline/config/<co>.json; its company.name_regex is the name pattern (default: found from DIR or the term)")
     ap.add_argument("--match-title", action="store_true", help="export-db: also match ISSUER_TITLE (an SPV named after the company)")
     a = ap.parse_args()
     {"list": cmd_list, "download": cmd_download, "parse": cmd_parse, "build": cmd_build, "export-db": cmd_export_db}[a.cmd](a)

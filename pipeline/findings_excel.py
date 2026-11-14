@@ -7,7 +7,9 @@ the filing at the text). Everything comes from the verified evidence files and t
 """
 from __future__ import annotations
 
+import bisect
 import csv
+import html
 import re
 import sys
 import urllib.parse
@@ -21,16 +23,17 @@ from openpyxl.worksheet.hyperlink import Hyperlink
 
 csv.field_size_limit(10**9)
 co, name, dest = sys.argv[1], sys.argv[2], Path(sys.argv[3])
-HERE = Path(__file__).parent
-ROOT = HERE.parents[2]
-ev = HERE / "out" / co / "evidence"
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # pipeline/: paths.py
+import paths as px  # noqa: E402
+
+ev = px.OUT / co / "evidence"
 rd = lambda p: list(csv.DictReader(open(p, encoding="utf-8"))) if p.exists() else []   # noqa: E731
 E = {r["evidence_id"]: r for r in rd(ev / "evidence_rows.csv")}
 LOC = {r["id"]: r for r in rd(ev / "locator.csv")}
-H, F, RL = rd(ev / "holdings_from_evidence.csv"), rd(ev / "facts_from_evidence.csv"), rd(ev / "relationships_from_evidence.csv")
-NP = rd(ROOT / "dumps" / f"{co}_nport" / "nport_holdings.csv")
-FD = rd(HERE / "out" / co / "formd_offerings.csv")
-DOL = rd(HERE / "inputs" / co / "data" / "dol_form5500.csv")
+H = rd(ev / "holdings_from_evidence.csv")
+NP = rd(px.DUMPS / f"{co}_nport" / "nport_holdings.csv")
+FD = rd(px.OUT / co / "formd_offerings.csv")
+DOL = rd(px.INPUTS / co / "data" / "dol_form5500.csv")
 FONT, NAVY = "Arial", "1F3A5F"
 BLUE, GREEN = "EAF1FB", "EAF6EC"
 BAD = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\ud800-\udfff￾￿]")
@@ -126,42 +129,6 @@ HC = [("#", "#", 5), ("holder", "Holder", 26), ("vehicle", "Vehicle", 16), ("pty
 side = {"sh": "p", "sh_w": "g", "cost": "p", "cost_w": "g", "fv": "p", "fv_w": "g", "cm": "p", "cm_w": "g", "asof": "p", "asof_w": "g"}
 sheet(wb, "Holdings (filings)", HC, hold, side)
 
-# Facts
-facts = []
-for f in F:
-    l_ = LOC.get(f["fact_id"], {})
-    xml = f["metric"] == "fund_transaction"
-    facts.append(dict(found=f"{f['metric'].replace('_', ' ')}: {f['printed']}", ground=f["sentence"], date=f["date"] or "not stated", date_w=f["date"] or "—",
-                      num=fmt(f["value"]) if f["unit"] == "USD" else f["value"], num_w=f["printed"],
-                      match="Yes: same number as written" + (" (XML field)" if xml else ", scale word printed next to it"),
-                      ftype=f["metric"].replace("_", " "), form=f["form"], filer=re.sub(r"\s*\(CIK \d+\)", "", f["filer"]), filed=f["filing_date"],
-                      page=l_.get("page", ""), link=link(f["url"], "" if xml else f["printed"].strip())))
-FCOL = [("#", "#", 5), ("found", "What the pipeline found", 30), ("date", "Date (pipeline)", 12),
-        ("date_w", "Date as written in the filing", 16), ("num", "Number (pipeline)", 16), ("num_w", "Number as written in the filing", 18), ("match", "Match", 26),
-        ("ftype", "Type", 16), ("form", "Form", 8), ("filer", "Filed by", 24), ("filed", "Filing date", 11), ("page", "Page (printed in the filing)", 9), ("link", "Source (opens at the text)", 10)]
-FACTS_ARGS = ("Facts", FCOL, facts, {"date": "p", "date_w": "g", "num": "p", "num_w": "g"})
-
-# Relationships
-best = {}
-for h in hold:
-    pass
-rels = []
-loans = ("funded loan", "unfunded commitment")
-for r in RL:
-    lend = r["relation"] == "lends_to"
-    hs = [x for x in hold if x["holder"] == r["from_company"] and ((x["ptype"] in loans) == lend)]
-    b = max(hs, key=lambda x: (x["asof"], x["filed"])) if hs else {}
-    rels.append(dict(found=f"{r['from_company']} {'lends to' if lend else 'invests in'} {name}", ground=b.get("ground", r["quote"]),
-                     frm=r["from_company"], frm_w=b.get("filer", ""), to=name, to_w=re.split(r"\s*\|", b.get("ground", ""))[0][:60],
-                     match="Yes: the filer's holdings table lists the company" + (" as a loan" if lend else " as shares or an interest"),
-                     how="Rule: a fund's own holdings table; loan rows = lender, share rows = investor", rows=r["rows"], first=r["first_date"], last=r["last_date"],
-                     form=b.get("form", r["form"]), filer=b.get("filer", ""), filed=b.get("filed", r["filing_date"]), page=b.get("page", ""), link=b.get("link", r["sec_url"])))
-RCOL = [("#", "#", 5), ("found", "What the pipeline found", 34), ("ground", "Ground truth (the holdings row, as printed)", 60), ("frm", "From (pipeline)", 24),
-        ("frm_w", "From as named in the ground truth (filer)", 24), ("to", "To (pipeline)", 16), ("to_w", "To as named in the ground truth", 22), ("match", "Match", 26),
-        ("how", "How it was read", 26), ("rows", "Holdings rows", 8), ("first", "First seen", 11), ("last", "Last seen", 11), ("form", "Form", 8), ("filer", "Filed by", 24),
-        ("filed", "Filing date", 11), ("page", "Page (printed in the filing)", 9), ("link", "Source (opens at the text)", 10)]
-# the Relationships sheet is left out of this workbook (relationships stay in relationships_from_evidence.csv)
-
 # N-PORT holdings (structured records)
 npr = []
 for r in sorted(NP, key=lambda x: (x["report_date"], x["fund_house"], x["series"])):
@@ -219,21 +186,65 @@ for r in E.values():
     allr.append(dict(kind={"table": "table row", "iXBRL tag": "iXBRL tag", "N-CEN XML": "N-CEN XML", "pdf line": "PDF line", "text layout": "text block"}.get(r["method"], r["method"]),
                      form=r["form"], filer=re.sub(r"\s*\(CIK \d+\)", "", r["filer"]), filed=r["file_date"], asof=r.get("report_date") or r["as_of"],
                      text=r["raw"], status=WHY(r), page=l_.get("page", ""), link=link(r["url"], l_.get("search_text", ""), cell_prefix(r["raw"], l_.get("prefix", ""), l_.get("search_text", ""))), acc=r["accession"]))
-for p_ in rd(ev / "prose_sentences.csv"):
+# The whole paragraph each sentence sits in, read from the filing on disk at the sentence's position: the HTML block
+# (<p>, <div>, <li>, table cell, heading) around it. The sentence column keeps only the sentence that names the company;
+# this column shows the sentences around it too (it / the company ... that refer back to it).
+BLOCK = re.compile(r"</?(?:p|div|li|td|th|tr|table|h[1-6]|blockquote|center)\b[^>]*>|<br\s*/?>\s*<br\s*/?>", re.I)
+PATHS = {r["sec_url"]: px.DUMPS / m.name.replace("_manifest.csv", "") / r["file"]
+         for m in px.DUMPS.glob(f"{co}*_manifest.csv") for r in rd(m)}
+_doc: dict = {}
+
+
+def paragraph(url: str, pos: str) -> tuple:
+    """(paragraph number in the filing, paragraph text) around character `pos` of the filing at `url`; ("", "") if not readable."""
+    if not str(pos).isdigit() or url not in PATHS or not PATHS[url].exists() or PATHS[url].suffix.lower() not in (".htm", ".html", ".txt"):
+        return "", ""
+    if url not in _doc:
+        _doc.clear()                                   # one filing at a time: rows are read in filing order
+        t = PATHS[url].read_text(encoding="utf-8", errors="ignore")
+        t = re.sub(r"</?(?:table|tr|td|th)\b", lambda x: x[0].lower(), t, flags=re.I)   # same text the scan used, so positions agree
+        hdr = [(h.start(), h.end()) for h in re.finditer(r"<ix:header>.*?</ix:header>", t, re.I | re.S)]
+        _doc[url] = (t, [b.start() for b in BLOCK.finditer(t)], [b.end() for b in BLOCK.finditer(t)], hdr)
+    t, starts, ends, hdr = _doc[url]
+    p = int(pos)
+    i = bisect.bisect_right(ends, p)                   # blocks whose tag ends at or before the sentence
+    if any(x <= p < y for x, y in hdr):
+        return i, "(hidden XBRL data, not a paragraph on a page)"
+    a = ends[i - 1] if i else 0
+    b = starts[bisect.bisect_left(starts, p)] if bisect.bisect_left(starts, p) < len(starts) else len(t)
+    clean = lambda s: re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", s)).replace("\xa0", " "))   # noqa: E731
+    before, after = clean(t[a:p]).lstrip(), clean(t[p:b]).rstrip()
+    if len(before) + len(after) > 4000:                # a very long block: keep the 4,000 characters around the name
+        before, after = "…" + before[-2000:], after[:2000] + "…"
+    return i, (before + after).strip()
+
+
+prose = sorted(rd(ev / "prose_sentences.csv"), key=lambda r: (r["url"], int(r["pos"]) if r["pos"].isdigit() else 0))
+for p_ in prose:
     snt = re.sub(r'^[^<>]{0,80}?"\s*>\s*', "", p_["sentence"])
     l_ = LOCALL.get(f"S{p_['accession']}:{p_['pos']}", {})
+    pno, para = paragraph(p_["url"], p_["pos"])
     allr.append(dict(kind="sentence", form=p_["form"], filer=re.sub(r"\s*\(CIK \d+\)", "", p_["filer"]), filed=p_["file_date"], asof=p_["near_heading_date"],
-                     text=snt[:1000], status="Sentence that names the company",
+                     text=snt[:1000], status="Sentence that names the company", para=para, pno=pno,
                      page=l_.get("page", ""), link=link(p_["url"], l_.get("search_text", "")), acc=p_["accession"]))
 allr.sort(key=lambda r: (r["filed"], r["acc"]))
 AC = [("#", "#", 6), ("kind", "Kind", 11), ("form", "Form", 8), ("filer", "Filed by", 28), ("filed", "Filing date", 11), ("asof", "As of", 11),
-      ("text", "Evidence (table row or sentence, as printed)", 80), ("status", "What happened to it", 44), ("page", "Page", 9), ("link", "Source (opens at the text)", 10)]
+      ("text", "Evidence (table row or sentence, as printed)", 80), ("para", "Whole paragraph (sentences only)", 90), ("pno", "Paragraph no.", 9), ("status", "What happened to it", 44), ("page", "Page", 9), ("link", "Source (opens at the text)", 10)]
 sheet(wb, "All evidence", AC, allr)
 
 # Indirect mentions: pronouns (it / its / they / the company ...) the model tied to the company, and the 50-filing test
-IND = rd(HERE / "out" / co / "indirect_located.csv")
-SAMPLE_LIST = HERE / "out" / co / "indirect_sample50" / "sample_filings.txt"   # the 50 test filings (meta paths)
-SAMPLE = {__import__("json").load(open(x))["accession"] for x in (SAMPLE_LIST.read_text().splitlines() if SAMPLE_LIST.exists() else []) if x.strip() and Path(x).exists()}
+IND = rd(px.OUT / co / "indirect_located.csv")
+SAMPLE_LIST = px.OUT / co / "indirect_sample50" / "sample_filings.txt"   # optional: the filings of a hand-checked test set (meta paths), one per line
+
+
+def _meta(x: str):
+    """A listed meta file, or the file of the same name in the prepared folder (the list may hold paths from another checkout)."""
+    p = Path(x.strip())
+    return p if p.exists() else px.PREPARED / "companies" / p.name
+
+
+SAMPLE = {__import__("json").load(open(m))["accession"] for m in map(_meta, SAMPLE_LIST.read_text().splitlines() if SAMPLE_LIST.exists() else [])
+          if m.name and m.exists()}
 
 
 def ind_row(r):
@@ -313,5 +324,5 @@ wb.calculation = CalcProperties(fullCalcOnLoad=True)
 dest.mkdir(parents=True, exist_ok=True)
 out = dest / f"{name.split(',')[0].replace(' ', '_')}_findings.xlsx"
 wb.save(out)
-print(out, {"holdings": len(hold), "facts": len(facts), "nport": len(npr), "formd": len(fdr), "dol": len(dol), "all evidence": len(allr), "indirect": len(ind), "indirect test": len(test),
+print(out, {"holdings": len(hold), "nport": len(npr), "formd": len(fdr), "dol": len(dol), "all evidence": len(allr), "indirect": len(ind), "indirect test": len(test),
             "holdings not matched": sum(1 for h in hold if h["match"].startswith("No"))})

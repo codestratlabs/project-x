@@ -1,18 +1,17 @@
-"""Prepare one targeted company for the coref verifier: match its filings (dumps) with the earlier pipeline run.
+"""Line up one dump folder's filings with their company-finder mentions, for the indirect step.
 
-For a company folder such as `arize_ai`:
-  * reads dumps/<company>_manifest.csv (form, date, filer of every downloaded filing),
-  * reads the earlier run's <company>_mentions.csv (kept mentions after the model's false-positive check; one file for
-    all the company's filings, the `document` column says which filing each mention is in),
-  * for every filing that has mentions, copies the filing to data/pdfs/ and writes
-      data/companies/<company>__<form>__<accession>_mentions.csv   only that filing's mentions
-      data/companies/<company>__<form>__<accession>_mentions.meta.json   form, date, filer, sec url ...
-    The app reads the .meta.json to pre-fill the filer (the company that submitted the filing, which is usually NOT the
-    listed company) and to show the form.
-Filings without mentions are listed and skipped. Nothing is overwritten in Targeted_pdf; only copies are made.
+For a dump folder such as `databricks` (or `databricks_ncsr`):
+  * reads dumps/<folder>_manifest.csv (form, date, filer of every downloaded filing),
+  * reads the finder's <folder>_mentions.csv (kept mentions after its false-positive check; one file for all the
+    folder's filings, the `document` column says which filing each mention is in),
+  * for every filing that has mentions, copies (or links) the filing to work/prepared/pdfs/ and writes
+      work/prepared/companies/<folder>__<form>__<accession>__<doc>_mentions.csv        only that filing's mentions
+      work/prepared/companies/<folder>__<form>__<accession>__<doc>_mentions.meta.json  form, date, filer, sec url ...
+    The filer is the company that submitted the filing (usually NOT the listed company).
+Filings without mentions are listed and skipped. The dumps and the finder output are only read.
 
 Usage:
-  python coref_verifier/tools/prepare_targeted.py arize_ai [--dry-run]
+  python pipeline/prepare_filings.py databricks [--link] [--dry-run]
 """
 from __future__ import annotations
 
@@ -21,14 +20,12 @@ import csv
 import json
 import re
 import shutil
+import sys
 from pathlib import Path
 
 csv.field_size_limit(10**8)   # some Databricks context fields exceed the 131072 default
-HERE = Path(__file__).resolve().parent
-APP = HERE.parent
-EXP = APP.parent
-# the folder was moved from coref_experiment/ to ../Resources/; accept either place
-TARGETED = next((p for p in (EXP / "Targeted_pdf", EXP.parent / "Resources" / "Targeted_pdf") if p.exists()), EXP / "Targeted_pdf")
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # pipeline/: paths.py
+import paths as px  # noqa: E402
 
 
 def clean_filer(s: str) -> tuple[str, str]:
@@ -40,17 +37,17 @@ def clean_filer(s: str) -> tuple[str, str]:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("company", help="folder name under Targeted_pdf/dumps, e.g. arize_ai")
-    ap.add_argument("--targeted-dir", default=str(TARGETED))
-    ap.add_argument("--data-dir", default=str(APP / "data"))
+    ap.add_argument("company", help="dump folder name, e.g. databricks or databricks_ncsr")
+    ap.add_argument("--dumps", default=str(px.DUMPS))
+    ap.add_argument("--data-dir", default=str(px.PREPARED))
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--link", action="store_true", help="symlink the filings into data/pdfs instead of copying (large form sets)")
     a = ap.parse_args()
-    t, data = Path(a.targeted_dir), Path(a.data_dir)
-    manifest = t / "dumps" / f"{a.company}_manifest.csv"
-    outs = sorted(t.glob(f"*/out/{a.company}_*/{a.company}_mentions.csv"))
+    dumps, data = Path(a.dumps), Path(a.data_dir)
+    manifest = dumps / f"{a.company}_manifest.csv"
+    outs = [d / f"{a.company}_mentions.csv" for d in px.finder_run_dirs(a.company) if (d / f"{a.company}_mentions.csv").exists()]
     if not manifest.exists() or not outs:
-        raise SystemExit(f"manifest or mentions csv not found for {a.company} under {t}")
+        raise SystemExit(f"manifest ({manifest}) or company-finder {a.company}_mentions.csv (under {px.FINDER_ROOT}) not found")
     mentions_csv = outs[0]
     run_dir = mentions_csv.parent
     inp = sorted((run_dir.parent.parent / "input").glob(f"{a.company}_input.csv"))
@@ -63,7 +60,7 @@ def main() -> int:
     for r in rows:
         by_doc.setdefault(Path(r["document"]).name, []).append(r)
     print(f"{a.company}: {len(rows)} kept mentions in {len(by_doc)} filing(s); manifest has {len(man)} filing(s); "
-          f"previous run folder: {run_dir.relative_to(t)}")
+          f"company-finder run folder: {run_dir}")
     dropped = run_dir / f"{a.company}_dropped.csv"
     if dropped.exists():
         print(f"  dropped by the model earlier: {max(sum(1 for _ in open(dropped, encoding='utf-8')) - 1, 0)} row(s) (not used)")
@@ -73,7 +70,7 @@ def main() -> int:
         if not mr:
             print(f"  ! {name}: not in the manifest, skipped")
             continue
-        src = t / "dumps" / a.company / mr["file"]
+        src = dumps / a.company / mr["file"]
         if not src.exists():
             print(f"  ! {name}: file missing at {src}, skipped")
             continue

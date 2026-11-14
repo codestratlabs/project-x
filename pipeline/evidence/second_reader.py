@@ -1,9 +1,9 @@
-"""Second reader for schedule tables (the table reader of company_report_code_v2), used by evidence_tables.py.
+"""Second reader for schedule tables, used by evidence_tables.py for rows the first reader holds back for their layout.
 
 evidence_tables.py reads every row first. It asks this module only for rows it holds back because of their layout
 (a continuation page with no header, a header printed over two rows, value columns by date, numbers a column off their
 header), and for a second reading of each date (a schedule heading counts only up to the next statement or notes
-heading, and never when dated after the filing). Changed from v2 so it keeps evidence_tables.py's rules: amounts keep
+heading, and never when dated after the filing). It keeps evidence_tables.py's rules: amounts keep
 their sign (a minus or an opening bracket), a bare bracketed number such as (83) goes to review, and a "$" printed in
 the table is no unit (no unit printed: review). It has no command of its own.
 """
@@ -17,7 +17,11 @@ import html
 import json
 import multiprocessing as mp
 import re
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # pipeline/: paths.py, pages.py
+import paths as px  # noqa: E402
 
 csv.field_size_limit(10**8)
 HERE = Path(__file__).parent
@@ -704,15 +708,15 @@ def _unused_main() -> None:      # v2's command; evidence_tables.py is the comma
     ap.add_argument("company")
     ap.add_argument("--folders", nargs="+", required=True)
     ap.add_argument("--workers", type=int, default=2)
-    ap.add_argument("--dumps", default=str(HERE.parents[2] / "dumps"))
+    ap.add_argument("--dumps", default=str(px.DUMPS))
     ap.add_argument("--only", default="")
     ap.add_argument("--cell-names", nargs="*", default=None, help="short names that count only as a whole table cell ('Outreach' in a schedule row); "
-                    "default: model_config company.cell_names, else its aliases and employee_company")
+                    "default: config company.cell_names, else its aliases and employee_company")
     a = ap.parse_args()
-    cfg = json.loads((HERE / "model_config" / f"{a.company}.json").read_text(encoding="utf-8"))
+    cfg = json.loads(px.config_path(a.company).read_text(encoding="utf-8"))
     co = cfg["company"]
     names = a.cell_names if a.cell_names is not None else co.get("cell_names", co.get("aliases", []) + [co.get("employee_company") or ""])
-    key, ev = co["name_regex"] + cell_key(names), HERE / "out" / a.company / "evidence"
+    key, ev = co["name_regex"] + cell_key(names), px.OUT / a.company / "evidence"
     cache = ev / "table_cache"
     cache.mkdir(parents=True, exist_ok=True)
     files = {}

@@ -23,11 +23,13 @@ import hashlib
 import re
 import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # pipeline/: paths.py, pages.py
+import paths as px  # noqa: E402
 
 csv.field_size_limit(10**9)
 co, target = sys.argv[1], sys.argv[2]
 HERE = Path(__file__).parent
-ev = HERE / "out" / co / "evidence"
+ev = px.OUT / co / "evidence"
 short = re.escape(target.split(",")[0].split()[0])
 NAME = re.compile(rf"\b{short}\b", re.I)
 SCALE = {"trillion": 1e12, "billion": 1e9, "bn": 1e9, "b": 1e9, "million": 1e6, "mm": 1e6, "mn": 1e6, "m": 1e6, "thousand": 1e3, "k": 1e3}

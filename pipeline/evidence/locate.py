@@ -12,12 +12,13 @@ import html
 import re
 import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # pipeline/: paths.py, pages.py
+import paths as px  # noqa: E402
 
 csv.field_size_limit(10**9)
 co = sys.argv[1]
 HERE = Path(__file__).parent
-ROOT = HERE.parents[2]
-ev = HERE / "out" / co / "evidence"
+ev = px.OUT / co / "evidence"
 E = {r["evidence_id"]: r for r in csv.DictReader(open(ev / "evidence_rows.csv", encoding="utf-8"))}
 H = list(csv.DictReader(open(ev / "holdings_from_evidence.csv", encoding="utf-8")))
 F = list(csv.DictReader(open(ev / "facts_from_evidence.csv", encoding="utf-8")))
@@ -25,10 +26,10 @@ P = collections.defaultdict(list)
 for p in csv.DictReader(open(ev / "prose_sentences.csv", encoding="utf-8")):
     P[p["accession"]].append(p)
 local = collections.defaultdict(list)
-for man in sorted((ROOT / "dumps").glob(f"{co}*_manifest.csv")):
+for man in sorted(px.DUMPS.glob(f"{co}*_manifest.csv")):
     f = man.name.replace("_manifest.csv", "")
     for r in csv.DictReader(open(man, encoding="utf-8")):
-        local[r["accession"]].append(ROOT / "dumps" / f / r["file"])
+        local[r["accession"]].append(px.DUMPS / f / r["file"])
 from pages import BREAK, FOOT, breaks_of, page_at, txt   # noqa: E402,F401
 
 
@@ -64,7 +65,7 @@ for acc_, ps in P.items():                             # and every sentence that
     for p_ in ps:
         need[acc_].append(("p", p_))
 import json
-NAME = re.compile(json.loads((HERE / "model_config" / f"{co}.json").read_text(encoding="utf-8"))["company"]["name_regex"], re.I)
+NAME = re.compile(json.loads(px.config_path(co).read_text(encoding="utf-8"))["company"]["name_regex"], re.I)
 
 
 def prefix_of(raw: str, needle: str) -> str:

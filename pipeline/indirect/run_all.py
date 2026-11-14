@@ -3,14 +3,17 @@
 paragraphs of a mention of the company go to the model (--filer-implicit off); the filer's own we/our/the Company are
 not sent. Runs filings in parallel; a filing already done is skipped.
 
-    python run_indirect_all.py <company folder prefix> <out dir> [--parallel 4] [--only <file listing .meta.json paths>]
+    python pipeline/indirect/run_all.py <company folder prefix> <out dir> [--parallel 4] [--only <file listing .meta.json paths>]
 """
 import glob, json, subprocess, sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 co, out = sys.argv[1], Path(sys.argv[2])
 par = int(sys.argv[sys.argv.index("--parallel") + 1]) if "--parallel" in sys.argv else 4
-D = Path(__file__).resolve().parents[1] / "coref_verifier" / "data"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # pipeline/: paths.py
+import paths as px  # noqa: E402
+
+D = px.PREPARED
 metas = sorted(glob.glob(str(D / "companies" / f"{co}*__*_mentions.meta.json")))
 if "--only" in sys.argv:                               # a chosen subset, e.g. a test sample
     keep = {Path(x.strip()).name for x in open(sys.argv[sys.argv.index("--only") + 1]).read().splitlines() if x.strip()}   # names can contain spaces ("DEF 14A")

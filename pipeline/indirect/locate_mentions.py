@@ -2,8 +2,8 @@
 """Where each indirect mention (it / its / they / the company ...) sits in the filing: the printed page and the words to
 search for, so a link opens the filing at the pronoun, highlighted, the same way as the string-match evidence.
 
-    python indirect_locate.py <company> <indirect out dir> [<indirect out dir> ...]
-        -> out/<co>/indirect_located.csv
+    python pipeline/indirect/locate_mentions.py <company> <indirect out dir> [<indirect out dir> ...]
+        -> work/out/<co>/indirect_located.csv
 
 Rows kept: every trigger the model decided (decided_by = llm), and every trigger resolved to the company.
 """
@@ -16,18 +16,19 @@ import re
 import sys
 from pathlib import Path
 
-from pages import load, page_at, txt
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # pipeline/: paths.py, pages.py
+import paths as px  # noqa: E402
+from pages import load, page_at, txt  # noqa: E402
 
 csv.field_size_limit(10**9)
 co, dirs = sys.argv[1], [Path(x) for x in sys.argv[2:]]
-HERE = Path(__file__).resolve().parent
-DATA = HERE.parent / "coref_verifier" / "data"
+DATA = px.PREPARED
 META = {}
 for mf in glob.glob(str(DATA / "companies" / f"{co}*__*_mentions.meta.json")):   # also <co>_ncsr__..., <co>_delta__...
     m = json.load(open(mf, encoding="utf-8"))
     META[Path(m["document"]).stem] = m
 SEP = r"(?:\W|<[^>]*>|&#?\w+;)+"                       # what can sit between two words in the HTML
-NAME = re.compile(json.loads((HERE / "model_config" / f"{co}.json").read_text(encoding="utf-8"))["company"]["name_regex"], re.I)
+NAME = re.compile(json.loads(px.config_path(co).read_text(encoding="utf-8"))["company"]["name_regex"], re.I)
 
 
 def snippet(sentence: str, context: str, start: int, word: str) -> str:
@@ -79,7 +80,7 @@ for d in dirs:
                          "decided_by": r["decided_by"], "status": r["status"], "company": r["company"], "company_id": r["company_id"],
                          "confidence": r["confidence"], "reason": r["reason"], "page": page, "search_text": sn,
                          "found_in_filing": found, "times_in_filing": times})
-out = HERE / "out" / co / "indirect_located.csv"
+out = px.OUT / co / "indirect_located.csv"
 with open(out, "w", newline="", encoding="utf-8") as fh:
     w = csv.DictWriter(fh, list(rows[0]) if rows else ["run"])
     w.writeheader()

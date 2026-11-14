@@ -5,7 +5,7 @@
     python tools/download_filings.py databricks                     # terms: config "name" + company.aliases
     python tools/download_filings.py databricks --term "Databricks Inc" --skip-forms NPORT-P,NPORT-P/A --dumps DIR
 
-Terms come from model_config/<co>.json ("name" and company.aliases), plus any --term. Search ignores punctuation and case,
+Terms come from pipeline/config/<co>.json ("name" and company.aliases), plus any --term. Search ignores punctuation and case,
 so "Heal, Inc." and "Heal Inc" are one query. N-PORT is skipped by default: nport.py reads it as structured XML.
 Writes
     <dumps>/<co>/<form>/<accession>_<file>        one file per hit (the hit is a document: exhibits come as their own hit)
@@ -74,11 +74,11 @@ def write_csv(p: Path, head: list, rows: list, key, merge: bool, order) -> int:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("company", help="config / folder name, e.g. databricks")
-    ap.add_argument("--config", default="", help="default: coref_experiment/company_report/model_config/<company>.json")
+    ap.add_argument("--config", default="", help="default: pipeline/config/<company>.json")
     ap.add_argument("--term", action="append", default=[], help="extra search phrase (repeatable)")
     ap.add_argument("--only-terms", action="store_true", help="search only the --term phrases, not the config name and aliases")
     ap.add_argument("--skip-forms", default="NPORT-P,NPORT-P/A", help="comma list of forms listed but not downloaded ('' = none)")
-    ap.add_argument("--dumps", default=str(sec.ROOT / "dumps"))
+    ap.add_argument("--dumps", default=str(sec.px.DUMPS))
     ap.add_argument("--start", default="2001-01-01", help="first filing date searched (full-text search starts in 2001)")
     ap.add_argument("--list-only", action="store_true", help="write the hit list, download nothing")
     a = ap.parse_args()
