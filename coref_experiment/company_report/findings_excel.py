@@ -232,7 +232,8 @@ sheet(wb, "All evidence", AC, allr)
 
 # Indirect mentions: pronouns (it / its / they / the company ...) the model tied to the company, and the 50-filing test
 IND = rd(HERE / "out" / co / "indirect_located.csv")
-SAMPLE = "indirect_sample50"
+SAMPLE_LIST = HERE / "out" / co / "indirect_sample50" / "sample_filings.txt"   # the 50 test filings (meta paths)
+SAMPLE = {__import__("json").load(open(x))["accession"] for x in (SAMPLE_LIST.read_text().splitlines() if SAMPLE_LIST.exists() else []) if x.strip() and Path(x).exists()}
 
 
 def ind_row(r):
@@ -257,7 +258,7 @@ ind.sort(key=lambda r: (r["filed"], r["acc"]))
 seen_t, test = set(), []                                # the 50-filing test: only the places the model tied to the company
 for r in IND:
     k = (r["accession"], r["search_text"], r["page"])
-    if r["run"] == SAMPLE and r["company_id"].startswith("C") and r["status"] == "resolved" and k not in seen_t:
+    if r["accession"] in SAMPLE and r["company_id"].startswith("C") and r["status"] == "resolved" and k not in seen_t:
         seen_t.add(k)
         test.append(ind_row(r))
 test.sort(key=lambda r: (r["filed"], r["acc"]))

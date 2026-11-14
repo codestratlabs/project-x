@@ -92,10 +92,26 @@ SCHEMA = {
 }
 
 VERIFY_SYSTEM = """You check pronoun resolutions in text from a financial/legal filing. Each item gives a text with ONE
-word marked [[like this]] and a company. Answer YES only if the marked word certainly refers to that company alone.
-Answer NO if it refers to anything else (the filer, a fund, a stake, a product, a person, another company, a group of
-companies, companies in general), if it is a dummy "it", if it is in a table header, or if it could refer to more than
-one thing. When in doubt, NO. Return JSON only: {"items": [{"n": <item number>, "answer": "YES" or "NO", "reason": "<short>"}]}."""
+word marked [[like this]] and a company. Decide whether the marked word refers to that company.
+
+Answer YES when the marked word points back to that company as named in the text. This includes:
+- the company described by what it does or sells, under its own name ("Databricks is a unified analytics platform
+  ... [[It]] allows teams to collaborate" -> the company Databricks: YES);
+- a possessive whose owner is the company as the subject of the sentence or clause ("Databricks expanded its
+  partnership with Docebo, upgrading [[its]] core platform" -> Databricks: YES);
+- "the company", "it", "its" right after sentences about that company ("... the private company Databricks ...
+  [[The company's]] valuation rose" -> YES).
+
+Answer NO only when the marked word refers to something else:
+- the filer, a fund ("the Fund or [[its]] performance"), a portfolio, a stake or investment ("we have a small stake,
+  and [[its]] value increased"), a security, a person, or another company;
+- a group of companies or partners together, or companies in general ("criteria used to evaluate [[its]] investment
+  prospects" in a general statement about IPO companies);
+- a dummy "it" ("[[it]] is uncertain"), or a table header;
+- two candidates fit equally well and the text does not settle it.
+Grammar: a possessive in a main or purpose clause belongs to the subject ("X is working with Y to deepen [[its]]
+integration" -> X, not Y).
+Return JSON only: {"items": [{"n": <item number>, "answer": "YES" or "NO", "reason": "<short>"}]}."""
 
 VERIFY_SCHEMA = {
     "name": "pronoun_check", "strict": True,
@@ -302,7 +318,7 @@ def main() -> int:
     if todo and not a.no_verify:
         for k in range(0, len(todo), 25):
             part = todo[k:k + 25]
-            ctx = "\n\n".join(f"ITEM {n}: company = {r['company']}\n" + (s.context_lines(scope, pid, after=0, tail=True)[0] + "\n" if pid - 1 in scope.by_id else "")
+            ctx = "\n\n".join(f"ITEM {n}: company = {r['company']}\n" + (s.context_lines(scope, pid, after=0, cut=900, tail=True)[0] + "\n" if pid - 1 in scope.by_id else "")
                               + marked(scope.by_id[pid].text, r["start"], r["trigger"], 600, 200) for n, (pid, r) in enumerate(part, 1))
             res = c.call_llm(ctx, a.verify_model, max_tokens=4000, timeout=a.timeout, limiter=limiter, label=f"check {k // 25 + 1}",
                              system=VERIFY_SYSTEM, schema=VERIFY_SCHEMA)
