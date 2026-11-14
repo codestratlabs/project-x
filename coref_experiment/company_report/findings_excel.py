@@ -7,7 +7,9 @@ the filing at the text). Everything comes from the verified evidence files and t
 """
 from __future__ import annotations
 
+import bisect
 import csv
+import html
 import re
 import sys
 import urllib.parse
@@ -219,15 +221,50 @@ for r in E.values():
     allr.append(dict(kind={"table": "table row", "iXBRL tag": "iXBRL tag", "N-CEN XML": "N-CEN XML", "pdf line": "PDF line", "text layout": "text block"}.get(r["method"], r["method"]),
                      form=r["form"], filer=re.sub(r"\s*\(CIK \d+\)", "", r["filer"]), filed=r["file_date"], asof=r.get("report_date") or r["as_of"],
                      text=r["raw"], status=WHY(r), page=l_.get("page", ""), link=link(r["url"], l_.get("search_text", ""), cell_prefix(r["raw"], l_.get("prefix", ""), l_.get("search_text", ""))), acc=r["accession"]))
-for p_ in rd(ev / "prose_sentences.csv"):
+# The whole paragraph each sentence sits in, read from the filing on disk at the sentence's position: the HTML block
+# (<p>, <div>, <li>, table cell, heading) around it. The sentence column keeps only the sentence that names the company;
+# this column shows the sentences around it too (it / the company ... that refer back to it).
+BLOCK = re.compile(r"</?(?:p|div|li|td|th|tr|table|h[1-6]|blockquote|center)\b[^>]*>|<br\s*/?>\s*<br\s*/?>", re.I)
+PATHS = {r["sec_url"]: ROOT / "dumps" / m.name.replace("_manifest.csv", "") / r["file"]
+         for m in (ROOT / "dumps").glob(f"{co}*_manifest.csv") for r in rd(m)}
+_doc: dict = {}
+
+
+def paragraph(url: str, pos: str) -> tuple:
+    """(paragraph number in the filing, paragraph text) around character `pos` of the filing at `url`; ("", "") if not readable."""
+    if not str(pos).isdigit() or url not in PATHS or not PATHS[url].exists() or PATHS[url].suffix.lower() not in (".htm", ".html", ".txt"):
+        return "", ""
+    if url not in _doc:
+        _doc.clear()                                   # one filing at a time: rows are read in filing order
+        t = PATHS[url].read_text(encoding="utf-8", errors="ignore")
+        t = re.sub(r"</?(?:table|tr|td|th)\b", lambda x: x[0].lower(), t, flags=re.I)   # same text the scan used, so positions agree
+        hdr = [(h.start(), h.end()) for h in re.finditer(r"<ix:header>.*?</ix:header>", t, re.I | re.S)]
+        _doc[url] = (t, [b.start() for b in BLOCK.finditer(t)], [b.end() for b in BLOCK.finditer(t)], hdr)
+    t, starts, ends, hdr = _doc[url]
+    p = int(pos)
+    i = bisect.bisect_right(ends, p)                   # blocks whose tag ends at or before the sentence
+    if any(x <= p < y for x, y in hdr):
+        return i, "(hidden XBRL data, not a paragraph on a page)"
+    a = ends[i - 1] if i else 0
+    b = starts[bisect.bisect_left(starts, p)] if bisect.bisect_left(starts, p) < len(starts) else len(t)
+    clean = lambda s: re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", s)).replace("\xa0", " "))   # noqa: E731
+    before, after = clean(t[a:p]).lstrip(), clean(t[p:b]).rstrip()
+    if len(before) + len(after) > 4000:                # a very long block: keep the 4,000 characters around the name
+        before, after = "…" + before[-2000:], after[:2000] + "…"
+    return i, (before + after).strip()
+
+
+prose = sorted(rd(ev / "prose_sentences.csv"), key=lambda r: (r["url"], int(r["pos"]) if r["pos"].isdigit() else 0))
+for p_ in prose:
     snt = re.sub(r'^[^<>]{0,80}?"\s*>\s*', "", p_["sentence"])
     l_ = LOCALL.get(f"S{p_['accession']}:{p_['pos']}", {})
+    pno, para = paragraph(p_["url"], p_["pos"])
     allr.append(dict(kind="sentence", form=p_["form"], filer=re.sub(r"\s*\(CIK \d+\)", "", p_["filer"]), filed=p_["file_date"], asof=p_["near_heading_date"],
-                     text=snt[:1000], status="Sentence that names the company",
+                     text=snt[:1000], status="Sentence that names the company", para=para, pno=pno,
                      page=l_.get("page", ""), link=link(p_["url"], l_.get("search_text", "")), acc=p_["accession"]))
 allr.sort(key=lambda r: (r["filed"], r["acc"]))
 AC = [("#", "#", 6), ("kind", "Kind", 11), ("form", "Form", 8), ("filer", "Filed by", 28), ("filed", "Filing date", 11), ("asof", "As of", 11),
-      ("text", "Evidence (table row or sentence, as printed)", 80), ("status", "What happened to it", 44), ("page", "Page", 9), ("link", "Source (opens at the text)", 10)]
+      ("text", "Evidence (table row or sentence, as printed)", 80), ("para", "Whole paragraph (sentences only)", 90), ("pno", "Paragraph no.", 9), ("status", "What happened to it", 44), ("page", "Page", 9), ("link", "Source (opens at the text)", 10)]
 sheet(wb, "All evidence", AC, allr)
 
 # Indirect mentions: pronouns (it / its / they / the company ...) the model tied to the company, and the 50-filing test
