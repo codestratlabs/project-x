@@ -203,7 +203,6 @@ held_ids = {h["evidence_id"] for h in H}
 repeat_ids = {x for h in H for x in (h.get("other_evidence_ids") or "").split()}
 failed = {x["evidence_id"]: x["fail"] for x in rd(ev / "validation_fail.csv")}
 conflict_ids = {x["evidence_id"] for x in rd(ev / "holdings_conflicts.csv")}
-fact_sent = {(f["accession"], f["sentence"][:150]) for f in F}
 WHY = lambda r: ("Verified: in Holdings" if r["evidence_id"] in held_ids else   # noqa: E731
                  "Verified: same row as one in Holdings, printed again in another filing" if r["evidence_id"] in repeat_ids else
                  "Held back: " + r["why"] if r["tier"] == "C review" else
@@ -220,10 +219,9 @@ for r in E.values():
                      text=r["raw"], status=WHY(r), page=l_.get("page", ""), link=link(r["url"], l_.get("search_text", ""), cell_prefix(r["raw"], l_.get("prefix", ""), l_.get("search_text", ""))), acc=r["accession"]))
 for p_ in rd(ev / "prose_sentences.csv"):
     snt = re.sub(r'^[^<>]{0,80}?"\s*>\s*', "", p_["sentence"])
-    hit = any(a == p_["accession"] and (k in snt or snt[:150] in k) for a, k in fact_sent if a == p_["accession"])
     l_ = LOCALL.get(f"S{p_['accession']}:{p_['pos']}", {})
     allr.append(dict(kind="sentence", form=p_["form"], filer=re.sub(r"\s*\(CIK \d+\)", "", p_["filer"]), filed=p_["file_date"], asof=p_["near_heading_date"],
-                     text=snt[:1000], status="Verified: in Facts" if hit else ("Sentence: no number tied to the company by rule" if re.search(r"\d", snt) else "Sentence: no number"),
+                     text=snt[:1000], status="Sentence that names the company",
                      page=l_.get("page", ""), link=link(p_["url"], l_.get("search_text", "")), acc=p_["accession"]))
 allr.sort(key=lambda r: (r["filed"], r["acc"]))
 AC = [("#", "#", 6), ("kind", "Kind", 11), ("form", "Form", 8), ("filer", "Filed by", 28), ("filed", "Filing date", 11), ("asof", "As of", 11),
@@ -264,7 +262,6 @@ for r in IND:
 test.sort(key=lambda r: (r["filed"], r["acc"]))
 sheet(wb, "Indirect mentions", IC, ind)
 sheet(wb, "Indirect test (50 filings)", IC, test)
-sheet(wb, *FACTS_ARGS)
 
 # About
 s = wb.active
@@ -288,11 +285,9 @@ about = [("Holdings (filings)", "Fund filings (N-CSR, N-CSRS, N-2, 424B3, 10-Q, 
          ("DOL 401(k)", "Department of Labor Form 5500", "Plan participants (U.S. staff minimum)", "Structured record, no model", "Each number compared with the original DOL field"),
          ("All evidence", "Every filing that names the company", "Every mention found: each table row, iXBRL tag, N-CEN field and sentence, and what happened to it", "Scan of every filing for the name", "Status column: verified, held back (with the reason), or not a position"),
          ("Indirect mentions", "Filings that name the company", "Sentences where it / its / they / the company points back to the company",
-          "Rule picks pronouns within 2 paragraphs of a mention; the language model (GPT-4.1) decides who each one refers to", "Model's reason and confidence shown; the sentence and link let anyone check it"),
+          "Rule picks pronouns within 2 paragraphs of a mention; the language model (GPT-4.1) decides who each one refers to; code checks the name is in the same or the 2 sentences before; a second model (Claude Opus 5.5) must agree", "Model's reason and confidence shown; the sentence and link let anyone check it"),
          ("Indirect test (50 filings)", "50 filings where the company is named in text (not tables)", "Only the sentences where a pronoun refers to the company",
-          "Same as Indirect mentions", "Test set: read the sentence at the link and compare with the model's answer"),
-         ("Facts", "SEC filings by other companies and funds that name the company; Form N-CEN", "Valuation, revenue run-rate, funding, debt, customers, fund purchases",
-          "Rules: number with its printed scale word, tied to the company by position in the sentence; N-CEN XML fields", "The number and scale word are written in the sentence; the metric word sits next to it")]
+          "Same as Indirect mentions", "Test set: read the sentence at the link and compare with the model's answer")]
 for j, row in enumerate(about, 7):
     for i, v in enumerate(row[:4] + (f"=COUNTA('{row[0]}'!A:A)-1",) + row[4:], 1):
         c = s.cell(j, i, v)
