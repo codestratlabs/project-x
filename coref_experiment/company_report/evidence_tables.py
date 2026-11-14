@@ -14,10 +14,13 @@ import html
 import json
 import multiprocessing as mp
 import re
+import sys
 from pathlib import Path
 
 csv.field_size_limit(10**8)
 HERE = Path(__file__).parent
+sys.path.insert(0, str(HERE))
+import layout_v2 as L2      # noqa: E402  the second reader (company_report_code_v2's table and date rules)
 MONTH = r"(?:January|February|March|April|May|June|July|August|September|October|November|December)"
 COL = [("text", r"\btype\b"), ("date", r"\bdate\b|\bacquired\b"), ("pct", r"%|percent"), ("per_share", r"per\s+share|per\s+unit"), ("unrealized", r"unrealized|appreciation|depreciation"),
        ("foot", r"footnote"), ("qty", r"units?\s*/\s*commitment"), ("funded", r"(?<!un)funded\s+commitment"), ("commitment", r"unfunded|commitment|undrawn"), ("value", r"\b(fair|market)?\s*value\b"), ("cost", r"\bcost\b"), ("qty", r"\bshares\b|\bprincipal\b|\bpar\b|\bunits\b|\bquantity\b|\bface\b|\bnumber of\b"), ("date", r"\bdate\b|\bacquired\b"), ("pct", r"%|percent")]
@@ -402,9 +405,91 @@ def sentence(t: str, m) -> str:
     return (left + " " + right).strip()[:1500]
 
 
+CACHE_V = "px2-layout_v2"     # bump when a reader changes, so cached rows of older code are not reused
+RECOVER = ("no column header found", "amount cells at the end of the row but", "no number under a known column")
+
+
+def second_reading(t: str, m, key: str, ctx2: dict, r: dict):
+    """A row this reader holds back for its layout gets a second reading by layout_v2's rules: a continuation page with no header (the header of
+    the earlier table of the same schedule, when it fits the row), a header printed over two rows, value columns by date (one row per date), numbers
+    printed a column off their header. Its rows replace the held-back row only when every one is clean and has an amount; they keep one reading
+    ("methods"), so evidence_build still needs Form N-PORT, or a single amount, to accept them. A row this reader read cleanly is never changed."""
+    prob, how = r.get("problem") or "", ""
+    if any(p in prob for p in RECOVER):
+        how = prob
+    elif str(r.get("methods", "")).startswith("two readings differ"):
+        how = "two readings differ"           # the second reader splits the row by dated value columns, or is a third reading of it
+    if not how:
+        return r
+    try:
+        alt = L2.from_table(t, m, key, ctx2)
+    except Exception:                         # the second reader never costs the first reader's row
+        return r
+    rows = alt if isinstance(alt, list) else ([alt] if alt else [])
+    if how == "two readings differ" and len(rows) == 1:      # a third reading of the same cells: two of three must agree
+        x, nums = rows[0], ("qty", "cost", "value", "commitment")
+        same = all((x.get(k) is None) == (r.get(k) is None) and (x.get(k) is None or abs(x[k] - r[k]) < 1e-9) for k in nums)
+        if same and not x.get("problem") and x.get("unit_factor") == r.get("unit_factor"):
+            r["methods"] = "two readings agree (right-aligned and second reader); " + r["methods"].replace("two readings differ: ", "by column position: ")
+            r["second_reading"] = "second reader agrees with the right-aligned reading"
+        return r
+    if not rows or (how == "two readings differ" and len(rows) < 2):
+        return r
+    if any(x.get("problem") or all(x.get(k) is None for k in ("qty", "cost", "value", "commitment")) for x in rows):
+        return r
+    for x in rows:
+        x["methods"] = "one reading (second reader: " + x["header"].rsplit("[", 1)[-1].rstrip("]") + ")"
+        x["second_reading"] = f"first reader: {how}"
+        if x.get("as_of"):                    # a dated value column prints its own date; "schedule" holds the printed text the date was read from, as for a heading
+            x["as_of_source"], x["schedule"] = "date printed in the column header", x["header"]
+    return rows
+
+
+def norm_any(d: str) -> str:
+    """A date as layout_v2 writes it ('December 31, 2025'), from 'DECEMBER 31,2025', '12/31/2025' or '2025-12-31'; '' when there is none."""
+    d = (d or "").strip()
+    if re.match(r"\d{4}-\d{2}-\d{2}", d):
+        return L2.iso_long(d)
+    n = L2.NUM_DATE.search(d)
+    return L2.norm_date(d) or (L2.num_date(n) if n else "")
+
+
+def check_date(d: str, src: str, sch: str, ctx2: dict, pos: int, filed: str) -> tuple:
+    """Two readings of a row's date must agree. The first is as_of(): the nearest dated heading above the row. The second is layout_v2's: the
+    schedule heading whose schedule has not ended at the row (a statement or notes heading ends it), else a dated notes heading. A disagreement,
+    a schedule that has ended, or a date after the filing gives no date (the row goes to review), never a guess. When only the second reader finds
+    a heading above the row, its date is used."""
+    import datetime as dt
+    heads = L2.heads_of(ctx2)
+    cover = L2.head_of(heads, pos)
+    if cover:
+        second = cover[1]
+    elif any(p < pos for p, _, _ in heads):
+        second = L2.as_of(ctx2["notes"], pos, "") or "ended"
+    else:
+        second = None                         # no heading above for the second reader: no opinion
+    first = norm_any(d)
+    if first and filed:
+        try:
+            if dt.datetime.strptime(first, "%B %d, %Y").date().isoformat() > filed:
+                return "", f"no date found: the heading date {d} is after the filing date", sch
+        except ValueError:
+            pass
+    if first:
+        if second in (None, first):
+            return d, src, sch
+        if second == "ended":
+            return "", f"no date found: the schedule dated {d} ends before this table", sch
+        return "", f"no date found: two date readings differ ({d} vs {second})", sch
+    if second and second != "ended":
+        return second, "heading above the table (second reader)", sch
+    return d, src, sch
+
+
 def scan(job: tuple) -> dict:
-    path, key, cache, form, acc = job
-    c = Path(cache) / (hashlib.sha1(f"{acc}/{Path(path).name}".encode()).hexdigest() + ".json")   # by filing, not by folder: works on any machine
+    path, key, cache, form, acc, *rest = job
+    filed = rest[0] if rest else ""
+    c = Path(cache) / (hashlib.sha1(f"{acc}/{Path(path).name}|{CACHE_V}|{key}".encode()).hexdigest() + ".json")   # by filing, not by folder: works on any machine
     if c.exists():
         res = json.loads(c.read_text(encoding="utf-8"))
         res["path"] = path
@@ -429,9 +514,12 @@ def scan(job: tuple) -> dict:
                 r["as_of"], r["as_of_source"] = r["date"], "iXBRL context date"
             res["rows"] += tagged
             anch, per = anchors(t), period(t, form)
+            ctx2 = {"t": t, "filed": filed}          # the second reader's state: schedule and notes headings, read once per filing
             last, seen, prose_seen = [[]], set(), set()
             for m in re.finditer(key, t, re.I):
                 r = from_table(t, m, key, last)
+                if r is not None and r.get("method") == "table":
+                    r = second_reading(t, m, key, ctx2, r)
                 if r is None:
                     r = from_text(t, m, key)
                 if r is None:
@@ -442,21 +530,29 @@ def scan(job: tuple) -> dict:
                         d, src, _ = as_of(anch, per, m.start())
                         res.setdefault("prose", []).append({"pos": m.start(), "sentence": sent, "near_heading_date": d if src.startswith("heading") else ""})
                     continue
-                k = (r.get("table"), r.get("row"))
-                if k in seen:
-                    continue
-                seen.add(k)
-                r["as_of"], r["as_of_source"], r["schedule"] = as_of(anch, per, m.start())
-                res["rows"].append(r)
+                for x in (r if isinstance(r, list) else [r]):
+                    k = (x.get("table"), x.get("row"))
+                    if k in seen:
+                        continue
+                    seen.add(k)
+                    if not x.get("as_of"):
+                        d, src, sch = as_of(anch, per, m.start())
+                        x["as_of"], x["as_of_source"], x["schedule"] = check_date(d, src, sch, ctx2, m.start(), filed)
+                    res["rows"].append(x)
     except Exception as e:
         res["error"] = f"{type(e).__name__}: {e}"[:160]
-    c.write_text(json.dumps(res), encoding="utf-8")
+    if not res["error"]:                     # a filing that failed is read again next time, not cached as empty
+        c.write_text(json.dumps(res), encoding="utf-8")
     return res
 
 
 def limit() -> None:
-    import resource
-    resource.setrlimit(resource.RLIMIT_AS, (1400 * 1024 ** 2, 1400 * 1024 ** 2))
+    """Cap a worker's memory where the OS allows it. macOS refuses RLIMIT_AS (ValueError); a worker that dies here hangs the pool, so go on without the cap."""
+    try:
+        import resource
+        resource.setrlimit(resource.RLIMIT_AS, (1400 * 1024 ** 2, 1400 * 1024 ** 2))
+    except (ImportError, ValueError, OSError):
+        pass
 
 
 def main() -> None:
@@ -477,8 +573,8 @@ def main() -> None:
             p = Path(a.dumps) / f / r["file"]
             if p.suffix.lower() in (".htm", ".html", ".pdf", ".xml") and (not a.only or re.search(a.only, r["form"])):
                 files[str(p)] = r
-    jobs = sorted(((p, key, str(cache), files[p]["form"], files[p]["accession"]) for p in files), key=lambda j: Path(j[0]).stat().st_size if Path(j[0]).exists() else 0)
-    head = ["accession", "form", "file_date", "filer", "as_of", "as_of_source", "schedule", "method", "name", "qty", "qty_factor", "cost", "value", "commitment", "unit_factor", "date", "header", "unit", "raw", "table", "row", "problem", "align", "methods", "url"]
+    jobs = sorted(((p, key, str(cache), files[p]["form"], files[p]["accession"], files[p].get("file_date", "")[:10]) for p in files), key=lambda j: Path(j[0]).stat().st_size if Path(j[0]).exists() else 0)
+    head = ["accession", "form", "file_date", "filer", "as_of", "as_of_source", "schedule", "method", "name", "qty", "qty_factor", "cost", "value", "commitment", "unit_factor", "date", "header", "unit", "raw", "table", "row", "problem", "align", "methods", "url", "second_reading"]   # new column last: every main column keeps its place
     n = collections.Counter()
     pf = open(ev / "prose_sentences.csv", "w", newline="", encoding="utf-8")
     pw = csv.DictWriter(pf, ["accession", "form", "file_date", "filer", "url", "pos", "near_heading_date", "sentence"])

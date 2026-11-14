@@ -1549,7 +1549,7 @@ the largest {money(co['largest_offering'])}{debt_split}; {'the revenue range was
          f"were not found in the filing text, or with confidence below 50, were dropped. Undated table values are kept in the holdings table but not in the per-share series.</li>"
          f"<li>The relationship step includes a direction check: the model names the company that does the action and the code flips any edge that "
          f"contradicts it.</li>") +
-      + (f"<li>The financial and credit models rest on assumptions in model_config: the U.S. share of staff, the peer gross margin and the rating thresholds. A change in these moves the results, as the sensitivity tables show. "
+      (f"<li>The financial and credit models rest on assumptions in model_config: the U.S. share of staff, the peer gross margin and the rating thresholds. A change in these moves the results, as the sensitivity tables show. "
          f"The input tables are built by script from the raw records. Unfunded commitments cover only what the filings tag.</li>" if fm else "") +
       f"<li>The year tables use calendar years{'; the models use fiscal years' if fm else f'; {esc(short)}&#39;s fiscal year end is not in these sources'}.</li></ul>")
 

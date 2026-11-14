@@ -90,8 +90,9 @@ def filing_text(url: str) -> str:
     return text_cache[url]
 
 
-rows = [r for r in csv.DictReader(open(HERE / "out" / a.company / "relationships_all.csv", encoding="utf-8"))
-        if NAME.search(r["from_company"] + " " + r["to_company"])]
+rel_path = HERE / "out" / a.company / "relationships_all.csv"      # the model's rows from an earlier LLM run of build_report, if any
+rows = [r for r in csv.DictReader(open(rel_path, encoding="utf-8"))
+        if NAME.search(r["from_company"] + " " + r["to_company"])] if rel_path.exists() else []
 rows.sort(key=lambda r: r["sec_url"])
 for r in rows:
     if r["relation"] in ("invests_in", "lends_to") and (r["sec_url"] in schedule_filings or r["filer"] in schedule_filings):
