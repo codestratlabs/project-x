@@ -77,7 +77,7 @@ def page_at(t: str, breaks: list, pos: int) -> str:
     start = breaks[i - 1] if i else 0
     start = t.find(">", start) + 1 if i and (_in_tag(t, start) or t.startswith("<", start)) else start
     m = HEAD.search(txt(t[start:min(start + 3000, end)])[:300])
-    if m:
+    if m and not re.fullmatch(r"(19|20)\d\d", m[1]):        # a year ("Customer Since: 2020") is not a page number
         return m[1]                                    # "Annual Report 2025 | Corporate governance 116" at the page's start
     tail = re.sub(r"(?:Table of Contents|See (?:accompanying )?Notes to (?:Consolidated )?Financial Statements\.?|The accompanying notes[^.]*\.)\s*$", "", tail, flags=re.I).strip()
     tail = re.sub(r"\s*See Accompanying Notes\.?$", "", tail, flags=re.I).strip()
