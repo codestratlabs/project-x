@@ -63,6 +63,17 @@ def is_html(path) -> bool:
 _PAGE_BREAK = re.compile(r"<[^>]*(?:page-)?break-(?:after|before)\s*:\s*(?:always|page)[^>]*>", re.I)
 
 
+_PRE = re.compile(r"(<pre\b.*?</pre>)", re.I | re.S)
+
+
+def _source_newlines_to_spaces(raw: str) -> str:
+    """A line break in the HTML source is only a space on the page (the browser wraps the text); only <br>, a block tag or
+    a page break starts a new line. Many filings break their source every ~130 characters inside one <p>, and reading
+    those breaks as paragraph ends cut one paragraph into many, so a company named at its start looked far from the
+    'it' / 'the company' at its end. <pre> blocks keep their line breaks (fixed-width schedules)."""
+    return "".join(p if p[:4].lower() == "<pre" else re.sub(r"[\r\n]+", " ", p) for p in _PRE.split(raw))
+
+
 def _load_html_paragraphs(path: str) -> list[Para]:
     """HTML / EDGAR filing, read with the pipeline's own HTML extractor (the text the earlier run matched on; pymupdf drops
     text from many EDGAR files). Pages are the filing's own page breaks (page-break-after/before: always), which is also
@@ -76,6 +87,7 @@ def _load_html_paragraphs(path: str) -> list[Para]:
     except ImportError as exc:  # pragma: no cover
         raise SystemExit(f"HTML filings need the company-finder package next to coref_experiment ({pipeline}): {exc}")
     raw = Path(path).read_bytes().decode("utf-8", "ignore")
+    raw = _source_newlines_to_spaces(raw)
     parts = _PAGE_BREAK.split(raw)
     paras: list[Para] = []
     chars = 0
@@ -94,7 +106,9 @@ def _load_html_paragraphs(path: str) -> list[Para]:
                         if len(piece) >= MIN_PARA_CHARS:
                             paras.append(Para(len(paras) + 1, page, piece))
         return paras
-    for unit in E.extract(path).units:
+    whole = E.ExtractResult(str(path), "html")
+    E.html_to_units(raw, whole, {})
+    for unit in whole.units:
         for line in _lines(unit.text):
             t = re.sub(r"\s+", " ", line).strip()
             for piece in _split_long(t):
