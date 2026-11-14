@@ -235,7 +235,16 @@ sheet(wb, "All evidence", AC, allr)
 # Indirect mentions: pronouns (it / its / they / the company ...) the model tied to the company, and the 50-filing test
 IND = rd(px.OUT / co / "indirect_located.csv")
 SAMPLE_LIST = px.OUT / co / "indirect_sample50" / "sample_filings.txt"   # optional: the filings of a hand-checked test set (meta paths), one per line
-SAMPLE = {__import__("json").load(open(x))["accession"] for x in (SAMPLE_LIST.read_text().splitlines() if SAMPLE_LIST.exists() else []) if x.strip() and Path(x).exists()}
+
+
+def _meta(x: str):
+    """A listed meta file, or the file of the same name in the prepared folder (the list may hold paths from another checkout)."""
+    p = Path(x.strip())
+    return p if p.exists() else px.PREPARED / "companies" / p.name
+
+
+SAMPLE = {__import__("json").load(open(m))["accession"] for m in map(_meta, SAMPLE_LIST.read_text().splitlines() if SAMPLE_LIST.exists() else [])
+          if m.name and m.exists()}
 
 
 def ind_row(r):
