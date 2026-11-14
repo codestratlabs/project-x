@@ -23,16 +23,17 @@ from openpyxl.worksheet.hyperlink import Hyperlink
 
 csv.field_size_limit(10**9)
 co, name, dest = sys.argv[1], sys.argv[2], Path(sys.argv[3])
-HERE = Path(__file__).parent
-ROOT = HERE.parents[2]
-ev = HERE / "out" / co / "evidence"
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # pipeline/: paths.py
+import paths as P  # noqa: E402
+
+ev = P.OUT / co / "evidence"
 rd = lambda p: list(csv.DictReader(open(p, encoding="utf-8"))) if p.exists() else []   # noqa: E731
 E = {r["evidence_id"]: r for r in rd(ev / "evidence_rows.csv")}
 LOC = {r["id"]: r for r in rd(ev / "locator.csv")}
-H, F, RL = rd(ev / "holdings_from_evidence.csv"), rd(ev / "facts_from_evidence.csv"), rd(ev / "relationships_from_evidence.csv")
-NP = rd(ROOT / "dumps" / f"{co}_nport" / "nport_holdings.csv")
-FD = rd(HERE / "out" / co / "formd_offerings.csv")
-DOL = rd(HERE / "inputs" / co / "data" / "dol_form5500.csv")
+H = rd(ev / "holdings_from_evidence.csv")
+NP = rd(P.DUMPS / f"{co}_nport" / "nport_holdings.csv")
+FD = rd(P.OUT / co / "formd_offerings.csv")
+DOL = rd(P.INPUTS / co / "data" / "dol_form5500.csv")
 FONT, NAVY = "Arial", "1F3A5F"
 BLUE, GREEN = "EAF1FB", "EAF6EC"
 BAD = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\ud800-\udfff￾￿]")
@@ -128,42 +129,6 @@ HC = [("#", "#", 5), ("holder", "Holder", 26), ("vehicle", "Vehicle", 16), ("pty
 side = {"sh": "p", "sh_w": "g", "cost": "p", "cost_w": "g", "fv": "p", "fv_w": "g", "cm": "p", "cm_w": "g", "asof": "p", "asof_w": "g"}
 sheet(wb, "Holdings (filings)", HC, hold, side)
 
-# Facts
-facts = []
-for f in F:
-    l_ = LOC.get(f["fact_id"], {})
-    xml = f["metric"] == "fund_transaction"
-    facts.append(dict(found=f"{f['metric'].replace('_', ' ')}: {f['printed']}", ground=f["sentence"], date=f["date"] or "not stated", date_w=f["date"] or "—",
-                      num=fmt(f["value"]) if f["unit"] == "USD" else f["value"], num_w=f["printed"],
-                      match="Yes: same number as written" + (" (XML field)" if xml else ", scale word printed next to it"),
-                      ftype=f["metric"].replace("_", " "), form=f["form"], filer=re.sub(r"\s*\(CIK \d+\)", "", f["filer"]), filed=f["filing_date"],
-                      page=l_.get("page", ""), link=link(f["url"], "" if xml else f["printed"].strip())))
-FCOL = [("#", "#", 5), ("found", "What the pipeline found", 30), ("date", "Date (pipeline)", 12),
-        ("date_w", "Date as written in the filing", 16), ("num", "Number (pipeline)", 16), ("num_w", "Number as written in the filing", 18), ("match", "Match", 26),
-        ("ftype", "Type", 16), ("form", "Form", 8), ("filer", "Filed by", 24), ("filed", "Filing date", 11), ("page", "Page (printed in the filing)", 9), ("link", "Source (opens at the text)", 10)]
-FACTS_ARGS = ("Facts", FCOL, facts, {"date": "p", "date_w": "g", "num": "p", "num_w": "g"})
-
-# Relationships
-best = {}
-for h in hold:
-    pass
-rels = []
-loans = ("funded loan", "unfunded commitment")
-for r in RL:
-    lend = r["relation"] == "lends_to"
-    hs = [x for x in hold if x["holder"] == r["from_company"] and ((x["ptype"] in loans) == lend)]
-    b = max(hs, key=lambda x: (x["asof"], x["filed"])) if hs else {}
-    rels.append(dict(found=f"{r['from_company']} {'lends to' if lend else 'invests in'} {name}", ground=b.get("ground", r["quote"]),
-                     frm=r["from_company"], frm_w=b.get("filer", ""), to=name, to_w=re.split(r"\s*\|", b.get("ground", ""))[0][:60],
-                     match="Yes: the filer's holdings table lists the company" + (" as a loan" if lend else " as shares or an interest"),
-                     how="Rule: a fund's own holdings table; loan rows = lender, share rows = investor", rows=r["rows"], first=r["first_date"], last=r["last_date"],
-                     form=b.get("form", r["form"]), filer=b.get("filer", ""), filed=b.get("filed", r["filing_date"]), page=b.get("page", ""), link=b.get("link", r["sec_url"])))
-RCOL = [("#", "#", 5), ("found", "What the pipeline found", 34), ("ground", "Ground truth (the holdings row, as printed)", 60), ("frm", "From (pipeline)", 24),
-        ("frm_w", "From as named in the ground truth (filer)", 24), ("to", "To (pipeline)", 16), ("to_w", "To as named in the ground truth", 22), ("match", "Match", 26),
-        ("how", "How it was read", 26), ("rows", "Holdings rows", 8), ("first", "First seen", 11), ("last", "Last seen", 11), ("form", "Form", 8), ("filer", "Filed by", 24),
-        ("filed", "Filing date", 11), ("page", "Page (printed in the filing)", 9), ("link", "Source (opens at the text)", 10)]
-# the Relationships sheet is left out of this workbook (relationships stay in relationships_from_evidence.csv)
-
 # N-PORT holdings (structured records)
 npr = []
 for r in sorted(NP, key=lambda x: (x["report_date"], x["fund_house"], x["series"])):
@@ -225,8 +190,8 @@ for r in E.values():
 # (<p>, <div>, <li>, table cell, heading) around it. The sentence column keeps only the sentence that names the company;
 # this column shows the sentences around it too (it / the company ... that refer back to it).
 BLOCK = re.compile(r"</?(?:p|div|li|td|th|tr|table|h[1-6]|blockquote|center)\b[^>]*>|<br\s*/?>\s*<br\s*/?>", re.I)
-PATHS = {r["sec_url"]: ROOT / "dumps" / m.name.replace("_manifest.csv", "") / r["file"]
-         for m in (ROOT / "dumps").glob(f"{co}*_manifest.csv") for r in rd(m)}
+PATHS = {r["sec_url"]: P.DUMPS / m.name.replace("_manifest.csv", "") / r["file"]
+         for m in P.DUMPS.glob(f"{co}*_manifest.csv") for r in rd(m)}
 _doc: dict = {}
 
 
@@ -268,8 +233,8 @@ AC = [("#", "#", 6), ("kind", "Kind", 11), ("form", "Form", 8), ("filer", "Filed
 sheet(wb, "All evidence", AC, allr)
 
 # Indirect mentions: pronouns (it / its / they / the company ...) the model tied to the company, and the 50-filing test
-IND = rd(HERE / "out" / co / "indirect_located.csv")
-SAMPLE_LIST = HERE / "out" / co / "indirect_sample50" / "sample_filings.txt"   # the 50 test filings (meta paths)
+IND = rd(P.OUT / co / "indirect_located.csv")
+SAMPLE_LIST = P.OUT / co / "indirect_sample50" / "sample_filings.txt"   # optional: the filings of a hand-checked test set (meta paths), one per line
 SAMPLE = {__import__("json").load(open(x))["accession"] for x in (SAMPLE_LIST.read_text().splitlines() if SAMPLE_LIST.exists() else []) if x.strip() and Path(x).exists()}
 
 
@@ -350,5 +315,5 @@ wb.calculation = CalcProperties(fullCalcOnLoad=True)
 dest.mkdir(parents=True, exist_ok=True)
 out = dest / f"{name.split(',')[0].replace(' ', '_')}_findings.xlsx"
 wb.save(out)
-print(out, {"holdings": len(hold), "facts": len(facts), "nport": len(npr), "formd": len(fdr), "dol": len(dol), "all evidence": len(allr), "indirect": len(ind), "indirect test": len(test),
+print(out, {"holdings": len(hold), "nport": len(npr), "formd": len(fdr), "dol": len(dol), "all evidence": len(allr), "indirect": len(ind), "indirect test": len(test),
             "holdings not matched": sum(1 for h in hold if h["match"].startswith("No"))})

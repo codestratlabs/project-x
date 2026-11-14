@@ -20,7 +20,9 @@ from pathlib import Path
 csv.field_size_limit(10**8)
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
-import layout_v2 as L2      # noqa: E402  the second reader (company_report_code_v2's table and date rules)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # pipeline/: paths.py, pages.py
+import paths as P  # noqa: E402
+import second_reader as L2      # noqa: E402  the second table reader (its own table and date rules)
 MONTH = r"(?:January|February|March|April|May|June|July|August|September|October|November|December)"
 COL = [("text", r"\btype\b"), ("date", r"\bdate\b|\bacquired\b"), ("pct", r"%|percent"), ("per_share", r"per\s+share|per\s+unit"), ("unrealized", r"unrealized|appreciation|depreciation"),
        ("foot", r"footnote"), ("qty", r"units?\s*/\s*commitment"), ("funded", r"(?<!un)funded\s+commitment"), ("commitment", r"unfunded|commitment|undrawn"), ("value", r"\b(fair|market)?\s*value\b"), ("cost", r"\bcost\b"), ("qty", r"\bshares\b|\bprincipal\b|\bpar\b|\bunits\b|\bquantity\b|\bface\b|\bnumber of\b"), ("date", r"\bdate\b|\bacquired\b"), ("pct", r"%|percent")]
@@ -405,12 +407,12 @@ def sentence(t: str, m) -> str:
     return (left + " " + right).strip()[:1500]
 
 
-CACHE_V = "px2-layout_v2"     # bump when a reader changes, so cached rows of older code are not reused
+CACHE_V = "px2-layout_v2"     # cache version key (a stored value, not a module name): bump when a reader changes, so cached rows of older code are not reused
 RECOVER = ("no column header found", "amount cells at the end of the row but", "no number under a known column")
 
 
 def second_reading(t: str, m, key: str, ctx2: dict, r: dict):
-    """A row this reader holds back for its layout gets a second reading by layout_v2's rules: a continuation page with no header (the header of
+    """A row this reader holds back for its layout gets a second reading by the second reader's rules (second_reader.py): a continuation page with no header (the header of
     the earlier table of the same schedule, when it fits the row), a header printed over two rows, value columns by date (one row per date), numbers
     printed a column off their header. Its rows replace the held-back row only when every one is clean and has an amount; they keep one reading
     ("methods"), so evidence_build still needs Form N-PORT, or a single amount, to accept them. A row this reader read cleanly is never changed."""
@@ -446,7 +448,7 @@ def second_reading(t: str, m, key: str, ctx2: dict, r: dict):
 
 
 def norm_any(d: str) -> str:
-    """A date as layout_v2 writes it ('December 31, 2025'), from 'DECEMBER 31,2025', '12/31/2025' or '2025-12-31'; '' when there is none."""
+    """A date as the second reader writes it ('December 31, 2025'), from 'DECEMBER 31,2025', '12/31/2025' or '2025-12-31'; '' when there is none."""
     d = (d or "").strip()
     if re.match(r"\d{4}-\d{2}-\d{2}", d):
         return L2.iso_long(d)
@@ -455,7 +457,7 @@ def norm_any(d: str) -> str:
 
 
 def check_date(d: str, src: str, sch: str, ctx2: dict, pos: int, filed: str) -> tuple:
-    """Two readings of a row's date must agree. The first is as_of(): the nearest dated heading above the row. The second is layout_v2's: the
+    """Two readings of a row's date must agree. The first is as_of(): the nearest dated heading above the row. The second is the second reader's: the
     schedule heading whose schedule has not ended at the row (a statement or notes heading ends it), else a dated notes heading. A disagreement,
     a schedule that has ended, or a date after the filing gives no date (the row goes to review), never a guess. When only the second reader finds
     a heading above the row, its date is used."""
@@ -560,11 +562,11 @@ def main() -> None:
     ap.add_argument("company")
     ap.add_argument("--folders", nargs="+", required=True)
     ap.add_argument("--workers", type=int, default=2)
-    ap.add_argument("--dumps", default=str(HERE.parents[2] / "dumps"))
+    ap.add_argument("--dumps", default=str(P.DUMPS))
     ap.add_argument("--only", default="")
     a = ap.parse_args()
-    cfg = json.loads((HERE / "model_config" / f"{a.company}.json").read_text(encoding="utf-8"))
-    key, ev = cfg["company"]["name_regex"], HERE / "out" / a.company / "evidence"
+    cfg = json.loads(P.config_path(a.company).read_text(encoding="utf-8"))
+    key, ev = cfg["company"]["name_regex"], P.OUT / a.company / "evidence"
     cache = ev / "table_cache"
     cache.mkdir(parents=True, exist_ok=True)
     files = {}

@@ -1,14 +1,13 @@
-"""Shared helpers for the indirect-reference experiment.
-
-Standalone: does not import company_finder. Reads OPENROUTER_API_KEY from ../company-finder/.env
-(or the environment). Both approaches use the same paragraphs, prompt rules, schema and validation,
-so the comparison measures only "whole PDF in one call" versus "chunks in parallel".
+"""Text and model calls for the indirect step: the filing's paragraphs (HTML through the company-finder extractor, PDFs
+through pymupdf) and an OpenRouter chat call with retries, rate limit and cost. OPENROUTER_API_KEY comes from the
+environment or company-finder/.env.
 """
 from __future__ import annotations
 
 import json
 import os
 import re
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -17,9 +16,10 @@ from pathlib import Path
 import pymupdf
 import requests
 
-HERE = Path(__file__).resolve().parent
-OUT_DIR = HERE / "out"
-ENV_FILE = HERE.parent / "company-finder" / ".env"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # pipeline/: paths.py
+import paths as P  # noqa: E402
+
+ENV_FILE = P.ENV_FILE
 URL = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_MODEL = "openai/gpt-4.1"
 MIN_PARA_CHARS = 30
@@ -79,13 +79,13 @@ def _load_html_paragraphs(path: str) -> list[Para]:
     text from many EDGAR files). Pages are the filing's own page breaks (page-break-after/before: always), which is also
     how the earlier run numbered pages. A filing without page breaks gets virtual pages of about PAGE_CHARS characters."""
     import sys
-    pipeline = HERE.parent / "company-finder"
+    pipeline = P.FINDER
     if str(pipeline) not in sys.path:
         sys.path.insert(0, str(pipeline))
     try:
         from company_finder import extract as E
     except ImportError as exc:  # pragma: no cover
-        raise SystemExit(f"HTML filings need the company-finder package next to coref_experiment ({pipeline}): {exc}")
+        raise SystemExit(f"HTML filings need the company-finder package ({pipeline}): {exc}")
     raw = Path(path).read_bytes().decode("utf-8", "ignore")
     raw = _source_newlines_to_spaces(raw)
     parts = _PAGE_BREAK.split(raw)
@@ -116,16 +116,6 @@ def _load_html_paragraphs(path: str) -> list[Para]:
                     paras.append(Para(len(paras) + 1, chars // PAGE_CHARS + 1, piece))
                     chars += len(piece)
     return paras
-
-
-def html_raw_text(path: str) -> str:
-    """All text of an HTML filing as the pipeline's extractor sees it (independent of the paragraph splitting)."""
-    import sys
-    pipeline = HERE.parent / "company-finder"
-    if str(pipeline) not in sys.path:
-        sys.path.insert(0, str(pipeline))
-    from company_finder import extract as E
-    return "\n".join(u.text for u in E.extract(path).units)
 
 
 _OPEN_END = re.compile(r"(?:^|\s)(?:the|a|an|of|and|or|to|in|for|by|with|its|our|their)\s*$", re.I)
@@ -192,55 +182,6 @@ def est_tokens(text: str) -> int:
     return len(text) // 4
 
 
-# ---------------------------------------------------------------- prompt + schema
-SYSTEM = """You find INDIRECT references to companies in text extracted from a financial/legal PDF.
-
-An indirect reference is a pronoun or role word that stands for a company named elsewhere in the text, e.g.
-"it", "its", "they", "their", "them", "we", "our", "us" (when the speaker is a company), "the Company", "the Fund",
-"the Issuer", "the Sponsor", "the Adviser", "the Borrower", "the Target", "the firm", "the group".
-Do NOT report the company's own name or abbreviation (those are direct mentions, handled elsewhere).
-
-Each paragraph is shown as [P<number>|p<page>] text.
-For every paragraph that contains such a reference, report one entry per (paragraph, company):
-- para: the paragraph number as an integer (the number after P).
-- pronouns: the exact words in that paragraph that refer to the company (copy them as written).
-- company: the full name of the company they refer to. Resolve it from this text (the filer, a defined term such as
-  (the "Company"), or the company named in the previous sentences). If the company is not named anywhere you can see,
-  use "UNKNOWN".
-- reason: one short sentence naming the evidence (e.g. 'defined as the "Company" in P3').
-- confidence: integer 0-100.
-
-Skip pronouns that refer to products, people, places, things or generic nouns. Skip paragraphs with no company reference.
-Return JSON only: {"references": [...]} (an empty list if there is none)."""
-
-SCHEMA = {
-    "name": "indirect_references",
-    "strict": True,
-    "schema": {
-        "type": "object",
-        "additionalProperties": False,
-        "required": ["references"],
-        "properties": {
-            "references": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "required": ["para", "pronouns", "company", "reason", "confidence"],
-                    "properties": {
-                        "para": {"type": "integer"},
-                        "pronouns": {"type": "array", "items": {"type": "string"}},
-                        "company": {"type": "string"},
-                        "reason": {"type": "string"},
-                        "confidence": {"type": "integer"},
-                    },
-                },
-            }
-        },
-    },
-}
-
-
 # ---------------------------------------------------------------- API
 class RateLimiter:
     def __init__(self, rpm: int):
@@ -277,13 +218,13 @@ class CallResult:
 
 def call_llm(user_text: str, model: str, *, max_tokens: int, timeout: int, retries: int = 3,
              limiter: RateLimiter | None = None, label: str = "",
-             system: str | None = None, schema: dict | None = None) -> CallResult:
+             system: str, schema: dict) -> CallResult:
     payload = {
         "model": model,
-        "messages": [{"role": "system", "content": system or SYSTEM}, {"role": "user", "content": user_text}],
+        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user_text}],
         "temperature": 0,
         "max_tokens": max_tokens,
-        "response_format": {"type": "json_schema", "json_schema": schema or SCHEMA},
+        "response_format": {"type": "json_schema", "json_schema": schema},
         "usage": {"include": True},
     }
     headers = {"Authorization": f"Bearer {api_key()}", "Content-Type": "application/json"}
@@ -378,37 +319,3 @@ def parse_references(content: str) -> tuple[list[dict], bool]:
         if isinstance(obj, dict):
             out.append(obj)
     return out, False
-
-
-def validate(refs: list[dict], paras: dict[int, Para]) -> list[dict]:
-    """Add 'valid' and 'problem' to each reference: paragraph exists and at least one pronoun is in its text."""
-    for r in refs:
-        p = paras.get(r.get("para"))
-        r["page"] = p.page if p else None
-        r["passage"] = p.text if p else ""
-        if not p:
-            r["valid"], r["problem"] = False, "paragraph does not exist"
-            continue
-        low = p.text.lower()
-        ok = any(re.search(r"(?<!\w)" + re.escape(w.lower()) + r"(?!\w)", low) for w in r.get("pronouns", []) if w)
-        r["valid"] = ok
-        r["problem"] = "" if ok else "none of the pronouns appear in the paragraph"
-    return refs
-
-
-def dedupe(refs: list[dict]) -> list[dict]:
-    seen, out = set(), []
-    for r in refs:
-        k = (r.get("para"), (r.get("company") or "").lower())
-        if k in seen:
-            continue
-        seen.add(k)
-        out.append(r)
-    return sorted(out, key=lambda r: (r.get("para") or 0, r.get("company") or ""))
-
-
-def save_result(name: str, meta: dict, refs: list[dict], calls: list[dict] | None = None) -> Path:
-    OUT_DIR.mkdir(exist_ok=True)
-    path = OUT_DIR / f"{name}.json"
-    path.write_text(json.dumps({"meta": meta, "calls": calls or [], "references": refs}, indent=1, ensure_ascii=False), encoding="utf-8")
-    return path

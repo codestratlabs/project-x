@@ -1,18 +1,18 @@
-"""Step 1: indirect mentions (we / our / it / they / the Company ...) of the companies in the passed list.
+"""Indirect mentions (we / our / it / they / the Company ...) of the companies in the passed list.
 
 Scope     Only the companies in the pipeline result passed with --mentions (final.json or *_mentions.csv).
 Method    1. Code finds EVERY trigger word in the PDF paragraphs (nothing is left to the model to "notice").
           2. First-person words (we, our, us) and defined terms (the Company, the Fund ...) are the filer's by rule.
           3. Third-person words (it, its, they, their, them) are decided by the LLM, only where a listed company is
              mentioned within --window paragraphs, choosing from that closed list or NONE.
-          4. Every trigger is written to the audit file with its status, so the verification kit can reconcile
-             the counts with the PDF text (verify_indirect.py).
-Outputs   steps/out/<pdf>_indirect_mentions.csv      one row per resolved mention (page, paragraph, context ...)
-          steps/out/<pdf>_indirect_all_triggers.csv every trigger and what happened to it (audit / verification)
-          steps/out/<pdf>_indirect_run.json         settings, counts, tokens, cost, time, rate limits
+          4. Every trigger is written to the audit file with its status, so the counts can be reconciled with the
+             filing text.
+Outputs   <out dir>/<pdf>_indirect_mentions.csv      one row per resolved mention (page, paragraph, context ...)
+          <out dir>/<pdf>_indirect_all_triggers.csv every trigger and what happened to it (audit)
+          <out dir>/<pdf>_indirect_run.json         settings, counts, tokens, cost, time, rate limits
 
 Usage:
-  company-finder/.venv/bin/python coref_experiment/steps/indirect_mentions.py PDF --mentions final.json
+  company-finder/.venv/bin/python pipeline/indirect/indirect_mentions.py FILING --mentions <filing>_mentions.csv
         [--model openai/gpt-4.1] [--window 2] [--filer-rows paragraph|occurrence] [--dry-run]
 """
 from __future__ import annotations
@@ -25,7 +25,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-import shared as s
+import scope as s
 
 c = s.c
 d = s.d
@@ -245,7 +245,7 @@ def main() -> int:
     ap.add_argument("--max-tokens", type=int, default=8000)
     ap.add_argument("--timeout", type=int, default=300)
     ap.add_argument("--keep-tables", action="store_true")
-    ap.add_argument("--out-dir", default="", help="where to write the outputs (default: steps/out)")
+    ap.add_argument("--out-dir", default="", help="where to write the outputs (default: work/out/indirect)")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--tag", default="")
     a = ap.parse_args()
@@ -334,7 +334,7 @@ def main() -> int:
                              reason=f"(second check: {x.get('reason', 'no answer') if x else 'no answer'}) " + r["reason"])
 
     # ---- outputs
-    s.OUT_DIR.mkdir(exist_ok=True)
+    s.OUT_DIR.mkdir(parents=True, exist_ok=True)
     stem = f"{Path(a.pdf).stem}{a.tag}"
     for i, r in enumerate(rows, 1):
         r["id"] = i

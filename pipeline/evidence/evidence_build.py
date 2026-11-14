@@ -8,14 +8,16 @@
 """
 import collections, csv, datetime as dt, json, re, sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # pipeline/: paths.py, pages.py
+import paths as P  # noqa: E402
 csv.field_size_limit(10**8)
 co = sys.argv[1]
 HERE = Path(__file__).parent
-ev = HERE / "out" / co / "evidence"
-cfg = json.loads((HERE / "model_config" / f"{co}.json").read_text(encoding="utf-8"))
+ev = P.OUT / co / "evidence"
+cfg = json.loads(P.config_path(co).read_text(encoding="utf-8"))
 day_, ratio = cfg.get("split_date", "0"), cfg.get("split_ratio", 1)
 P = list(csv.DictReader(open(ev / "parsed_rows.csv", encoding="utf-8")))
-np_path = HERE.parents[2] / "dumps" / f"{co}_nport" / "nport_holdings.csv"
+np_path = P.DUMPS / f"{co}_nport" / "nport_holdings.csv"
 np_ = list(csv.DictReader(open(np_path, encoding="utf-8"))) if np_path.exists() else []   # no N-PORT file: rows are graded without it
 by = collections.defaultdict(list)
 for r in np_:
@@ -25,7 +27,7 @@ for d_, xs in by.items():
     for x in xs:
         if x[1]:
             by_shares[round(x[1])].append((x[0], d_))
-mk_path = HERE / "inputs" / co / "data" / "nport_price_monthly.csv"
+mk_path = P.INPUTS / co / "data" / "nport_price_monthly.csv"
 marks = {r["month"]: float(r["median_price"]) for r in csv.DictReader(open(mk_path, encoding="utf-8"))} if mk_path.exists() else {}   # no marks: the per-share test is skipped
 
 
@@ -95,7 +97,7 @@ for r in P:
 # every mention as another organisation is set aside; a filing the finder never saw keeps its rows (finder_verdicts.py)
 sys.path.insert(0, str(HERE))
 from finder_verdicts import lookalikes        # noqa: E402
-_dumps = HERE.parents[2] / "dumps"
+_dumps = P.DUMPS
 LOOK = lookalikes(cfg.get("dump_folders") or [co] + sorted(p.name[:-13] for p in _dumps.glob(f"{co}_*_manifest.csv")))
 n_look = 0
 for r in out:
