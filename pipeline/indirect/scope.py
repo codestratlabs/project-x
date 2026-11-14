@@ -14,9 +14,9 @@ sys.path.insert(0, str(HERE.parent))  # pipeline/: paths.py
 
 import mentions_map as d  # noqa: E402  (load_mentions, locate, pick_filer, looks_like_table)
 import text_llm as c  # noqa: E402
-import paths as P  # noqa: E402
+import paths as px  # noqa: E402
 
-OUT_DIR = P.OUT / "indirect"
+OUT_DIR = px.OUT / "indirect"
 c.MIN_PARA_CHARS = 1  # keep tiny text blocks (headings like 'Our Mission') so every trigger word is accounted for
 
 # ------------------------------------------------------------------ trigger words (indirect mentions)

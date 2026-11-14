@@ -24,9 +24,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pipeline"))
-import paths as P  # noqa: E402
+import paths as px  # noqa: E402
 
-CONFIG = P.CONFIG
+CONFIG = px.CONFIG
 COLUMNS = ["id", "canonical_name", "aliases", "description"]
 
 
@@ -83,7 +83,7 @@ def main():
     if not p.exists():
         sys.exit(f"not configured: {p} does not exist")
     r = row(a.company, json.loads(p.read_text(encoding="utf-8")), a.name)
-    out = Path(a.out) if a.out else P.FINDER_ROOT / "input" / f"{a.company}_input.csv"
+    out = Path(a.out) if a.out else px.FINDER_ROOT / "input" / f"{a.company}_input.csv"
     out.parent.mkdir(parents=True, exist_ok=True)
     columns, rows = COLUMNS, [r]
     if out.exists() and not a.force:

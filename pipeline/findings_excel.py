@@ -24,16 +24,16 @@ from openpyxl.worksheet.hyperlink import Hyperlink
 csv.field_size_limit(10**9)
 co, name, dest = sys.argv[1], sys.argv[2], Path(sys.argv[3])
 sys.path.insert(0, str(Path(__file__).resolve().parent))   # pipeline/: paths.py
-import paths as P  # noqa: E402
+import paths as px  # noqa: E402
 
-ev = P.OUT / co / "evidence"
+ev = px.OUT / co / "evidence"
 rd = lambda p: list(csv.DictReader(open(p, encoding="utf-8"))) if p.exists() else []   # noqa: E731
 E = {r["evidence_id"]: r for r in rd(ev / "evidence_rows.csv")}
 LOC = {r["id"]: r for r in rd(ev / "locator.csv")}
 H = rd(ev / "holdings_from_evidence.csv")
-NP = rd(P.DUMPS / f"{co}_nport" / "nport_holdings.csv")
-FD = rd(P.OUT / co / "formd_offerings.csv")
-DOL = rd(P.INPUTS / co / "data" / "dol_form5500.csv")
+NP = rd(px.DUMPS / f"{co}_nport" / "nport_holdings.csv")
+FD = rd(px.OUT / co / "formd_offerings.csv")
+DOL = rd(px.INPUTS / co / "data" / "dol_form5500.csv")
 FONT, NAVY = "Arial", "1F3A5F"
 BLUE, GREEN = "EAF1FB", "EAF6EC"
 BAD = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\ud800-\udfff￾￿]")
@@ -190,8 +190,8 @@ for r in E.values():
 # (<p>, <div>, <li>, table cell, heading) around it. The sentence column keeps only the sentence that names the company;
 # this column shows the sentences around it too (it / the company ... that refer back to it).
 BLOCK = re.compile(r"</?(?:p|div|li|td|th|tr|table|h[1-6]|blockquote|center)\b[^>]*>|<br\s*/?>\s*<br\s*/?>", re.I)
-PATHS = {r["sec_url"]: P.DUMPS / m.name.replace("_manifest.csv", "") / r["file"]
-         for m in P.DUMPS.glob(f"{co}*_manifest.csv") for r in rd(m)}
+PATHS = {r["sec_url"]: px.DUMPS / m.name.replace("_manifest.csv", "") / r["file"]
+         for m in px.DUMPS.glob(f"{co}*_manifest.csv") for r in rd(m)}
 _doc: dict = {}
 
 
@@ -233,8 +233,8 @@ AC = [("#", "#", 6), ("kind", "Kind", 11), ("form", "Form", 8), ("filer", "Filed
 sheet(wb, "All evidence", AC, allr)
 
 # Indirect mentions: pronouns (it / its / they / the company ...) the model tied to the company, and the 50-filing test
-IND = rd(P.OUT / co / "indirect_located.csv")
-SAMPLE_LIST = P.OUT / co / "indirect_sample50" / "sample_filings.txt"   # optional: the filings of a hand-checked test set (meta paths), one per line
+IND = rd(px.OUT / co / "indirect_located.csv")
+SAMPLE_LIST = px.OUT / co / "indirect_sample50" / "sample_filings.txt"   # optional: the filings of a hand-checked test set (meta paths), one per line
 SAMPLE = {__import__("json").load(open(x))["accession"] for x in (SAMPLE_LIST.read_text().splitlines() if SAMPLE_LIST.exists() else []) if x.strip() and Path(x).exists()}
 
 

@@ -97,7 +97,7 @@ def main() -> None:
     ap.add_argument("--config", default="")
     ap.add_argument("--cik", default="", help="override the config's CIK")
     ap.add_argument("--xml-dir", action="append", default=[], help="folder(s) of Form D XML named <accession>_*.xml (default: dumps/<co>/D and D-A)")
-    ap.add_argument("--out", default=str(sec.P.FORMD_DB))
+    ap.add_argument("--out", default=str(sec.px.FORMD_DB))
     ap.add_argument("--no-fetch", action="store_true", help="use only the XML already in --xml-dir")
     ap.add_argument("--force", action="store_true", help="replace an existing database file")
     a = ap.parse_args()
@@ -111,7 +111,7 @@ def main() -> None:
     if not cik:
         raise SystemExit("no CIK: set company.cik in the config or pass --cik")
     cik = f"{int(cik):010d}"
-    dirs = [Path(d) for d in a.xml_dir] or [sec.P.DUMPS / a.company / f for f in ("D", "D-A")]
+    dirs = [Path(d) for d in a.xml_dir] or [sec.px.DUMPS / a.company / f for f in ("D", "D-A")]
     files = {}
     for d in dirs:
         for p in sorted(d.glob("*.xml")) if d.exists() else []:

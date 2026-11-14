@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # pipeline/: paths.py, pages.py
-import paths as P  # noqa: E402
+import paths as px  # noqa: E402
 
 csv.field_size_limit(10**8)
 HERE = Path(__file__).parent
@@ -708,15 +708,15 @@ def _unused_main() -> None:      # v2's command; evidence_tables.py is the comma
     ap.add_argument("company")
     ap.add_argument("--folders", nargs="+", required=True)
     ap.add_argument("--workers", type=int, default=2)
-    ap.add_argument("--dumps", default=str(P.DUMPS))
+    ap.add_argument("--dumps", default=str(px.DUMPS))
     ap.add_argument("--only", default="")
     ap.add_argument("--cell-names", nargs="*", default=None, help="short names that count only as a whole table cell ('Outreach' in a schedule row); "
                     "default: config company.cell_names, else its aliases and employee_company")
     a = ap.parse_args()
-    cfg = json.loads(P.config_path(a.company).read_text(encoding="utf-8"))
+    cfg = json.loads(px.config_path(a.company).read_text(encoding="utf-8"))
     co = cfg["company"]
     names = a.cell_names if a.cell_names is not None else co.get("cell_names", co.get("aliases", []) + [co.get("employee_company") or ""])
-    key, ev = co["name_regex"] + cell_key(names), P.OUT / a.company / "evidence"
+    key, ev = co["name_regex"] + cell_key(names), px.OUT / a.company / "evidence"
     cache = ev / "table_cache"
     cache.mkdir(parents=True, exist_ok=True)
     files = {}

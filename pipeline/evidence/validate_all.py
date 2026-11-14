@@ -23,18 +23,18 @@ import re
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # pipeline/: paths.py, pages.py
-import paths as P  # noqa: E402
+import paths as px  # noqa: E402
 
 csv.field_size_limit(10**9)
 co = sys.argv[1]
 HERE = Path(__file__).parent
-ev = P.OUT / co / "evidence"
+ev = px.OUT / co / "evidence"
 E = {r["evidence_id"]: r for r in csv.DictReader(open(ev / "evidence_rows.csv", encoding="utf-8"))}
 H = list(csv.DictReader(open(ev / "holdings_from_evidence.csv", encoding="utf-8")))
 local = collections.defaultdict(list)
-for f in sorted({p.name.replace("_manifest.csv", "") for p in P.DUMPS.glob(f"{co}*_manifest.csv")}):
-    for r in csv.DictReader(open(P.DUMPS / f"{f}_manifest.csv", encoding="utf-8")):
-        local[r["accession"]].append(P.DUMPS / f / r["file"])
+for f in sorted({p.name.replace("_manifest.csv", "") for p in px.DUMPS.glob(f"{co}*_manifest.csv")}):
+    for r in csv.DictReader(open(px.DUMPS / f"{f}_manifest.csv", encoding="utf-8")):
+        local[r["accession"]].append(px.DUMPS / f / r["file"])
 
 
 def txt(x: str) -> str:
@@ -64,8 +64,8 @@ def f(x):
 
 SCALE = re.compile(r"in\s+thousands|\(\s*000|000\s*[’'`]?s\b|\$\s?000|in\s+millions|\(\s*\$?\s*(?:in\s+)?millions?\s*\)|thousands of|millions of|\(\s*\$?\s*thousands\s*\)|\$\s*thousands|\(\s*\$?\s*millions\s*\)", re.I)
 import json
-cfg = json.loads(P.config_path(co).read_text(encoding="utf-8"))
-_mk = P.INPUTS / co / "data" / "nport_price_monthly.csv"
+cfg = json.loads(px.config_path(co).read_text(encoding="utf-8"))
+_mk = px.INPUTS / co / "data" / "nport_price_monthly.csv"
 MARK = {r["month"]: float(r["median_price"]) for r in csv.DictReader(open(_mk, encoding="utf-8"))} if _mk.exists() else {}   # no marks: per_share_ok is skipped
 
 

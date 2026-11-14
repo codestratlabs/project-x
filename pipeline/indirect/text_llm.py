@@ -17,9 +17,9 @@ import pymupdf
 import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # pipeline/: paths.py
-import paths as P  # noqa: E402
+import paths as px  # noqa: E402
 
-ENV_FILE = P.ENV_FILE
+ENV_FILE = px.ENV_FILE
 URL = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_MODEL = "openai/gpt-4.1"
 MIN_PARA_CHARS = 30
@@ -79,7 +79,7 @@ def _load_html_paragraphs(path: str) -> list[Para]:
     text from many EDGAR files). Pages are the filing's own page breaks (page-break-after/before: always), which is also
     how the earlier run numbered pages. A filing without page breaks gets virtual pages of about PAGE_CHARS characters."""
     import sys
-    pipeline = P.FINDER
+    pipeline = px.FINDER
     if str(pipeline) not in sys.path:
         sys.path.insert(0, str(pipeline))
     try:

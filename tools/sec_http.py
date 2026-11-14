@@ -13,17 +13,17 @@ import sys
 import requests            # verifies TLS with certifi
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pipeline"))
-import paths as P  # noqa: E402  every data folder (PX_DATA, PX_DUMPS ...)
+import paths as px  # noqa: E402  every data folder (PX_DATA, PX_DUMPS ...)
 
-ROOT = P.DATA                                       # holds dumps/ and input/
-CONFIG = P.CONFIG
+ROOT = px.DATA                                       # holds dumps/ and input/
+CONFIG = px.CONFIG
 _lock, _next, _s = threading.Lock(), [0.0], []
 
 
 def user_agent() -> str:
     """SEC_USER_AGENT from the environment or company-finder/.env, the same as nport.py."""
     ua = os.environ.get("SEC_USER_AGENT", "").strip()
-    env = P.ENV_FILE
+    env = px.ENV_FILE
     for line in ([] if ua or not env.exists() else env.read_text(encoding="utf-8").splitlines()):
         if line.strip().startswith("SEC_USER_AGENT="):
             ua = line.split("=", 1)[1].strip().strip('"\'')

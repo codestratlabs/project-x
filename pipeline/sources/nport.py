@@ -20,10 +20,10 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # pipeline/: paths.py
-import paths as P  # noqa: E402
+import paths as px  # noqa: E402
 
 UA = {}
-CONFIG = P.CONFIG
+CONFIG = px.CONFIG
 FORMS = ["NPORT-P", "NPORT-P/A"]
 _lock, _next = threading.Lock(), [0.0]
 
@@ -32,7 +32,7 @@ def _sec_user_agent() -> str:
     """SEC_USER_AGENT from the environment or company-finder/.env ("" when neither has it)."""
     if os.environ.get("SEC_USER_AGENT", "").strip():
         return os.environ["SEC_USER_AGENT"].strip()
-    env = P.ENV_FILE
+    env = px.ENV_FILE
     for line in (env.read_text(encoding="utf-8").splitlines() if env.exists() else []):
         if line.strip().startswith("SEC_USER_AGENT="):
             return line.split("=", 1)[1].strip().strip('"\'')

@@ -24,7 +24,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-import paths as P  # noqa: E402
+import paths as px  # noqa: E402
 
 
 def run(script: str, *args: str) -> None:
@@ -39,7 +39,7 @@ def main() -> int:
     ap.add_argument("--cik", required=True, help="the company's own CIK (Form D)")
     ap.add_argument("--name", required=True, help='the company name as it should appear in the workbook, e.g. "Databricks, Inc."')
     ap.add_argument("--dest", required=True, help="folder for the findings workbook")
-    ap.add_argument("--formd-db", default=str(P.FORMD_DB))
+    ap.add_argument("--formd-db", default=str(px.FORMD_DB))
     ap.add_argument("--indirect", action="store_true", help="run the indirect step (language model, costs money)")
     ap.add_argument("--skip-records", action="store_true", help="reuse the structured records already built")
     ap.add_argument("--skip-scan", action="store_true", help="reuse parsed_rows.csv instead of reading every filing again")
@@ -47,12 +47,12 @@ def main() -> int:
     ap.add_argument("--workers", default="2")
     a = ap.parse_args()
     co = a.company
-    if not P.config_path(co).exists():
-        sys.exit(f"no config: {P.config_path(co)}")
-    folders = [f for f in (co, f"{co}_ncsr", f"{co}_delta") if (P.DUMPS / f"{f}_manifest.csv").exists()]
+    if not px.config_path(co).exists():
+        sys.exit(f"no config: {px.config_path(co)}")
+    folders = [f for f in (co, f"{co}_ncsr", f"{co}_delta") if (px.DUMPS / f"{f}_manifest.csv").exists()]
     if not folders:
-        sys.exit(f"no downloaded filings: {P.DUMPS / (co + '_manifest.csv')}")
-    print(f"{co}: dump folders {', '.join(folders)}; work folder {P.WORK}", flush=True)
+        sys.exit(f"no downloaded filings: {px.DUMPS / (co + '_manifest.csv')}")
+    print(f"{co}: dump folders {', '.join(folders)}; work folder {px.WORK}", flush=True)
 
     if not a.skip_records:
         run("sources/records.py", co, "--cik", a.cik, "--formd-db", a.formd_db)
@@ -65,7 +65,7 @@ def main() -> int:
         for i, f in enumerate(folders):
             run("prepare_filings.py", f, *([] if i == 0 else ["--link"]))
     if a.indirect:
-        ind = P.OUT / co / "indirect"
+        ind = px.OUT / co / "indirect"
         run("indirect/run_all.py", co, str(ind), "--parallel", a.workers)
         run("indirect/locate_mentions.py", co, str(ind))
     run("findings_excel.py", co, a.name, a.dest)

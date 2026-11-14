@@ -25,7 +25,7 @@ from pathlib import Path
 
 csv.field_size_limit(10**8)   # some Databricks context fields exceed the 131072 default
 sys.path.insert(0, str(Path(__file__).resolve().parent))   # pipeline/: paths.py
-import paths as P  # noqa: E402
+import paths as px  # noqa: E402
 
 
 def clean_filer(s: str) -> tuple[str, str]:
@@ -38,16 +38,16 @@ def clean_filer(s: str) -> tuple[str, str]:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("company", help="dump folder name, e.g. databricks or databricks_ncsr")
-    ap.add_argument("--dumps", default=str(P.DUMPS))
-    ap.add_argument("--data-dir", default=str(P.PREPARED))
+    ap.add_argument("--dumps", default=str(px.DUMPS))
+    ap.add_argument("--data-dir", default=str(px.PREPARED))
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--link", action="store_true", help="symlink the filings into data/pdfs instead of copying (large form sets)")
     a = ap.parse_args()
     dumps, data = Path(a.dumps), Path(a.data_dir)
     manifest = dumps / f"{a.company}_manifest.csv"
-    outs = [d / f"{a.company}_mentions.csv" for d in P.finder_run_dirs(a.company) if (d / f"{a.company}_mentions.csv").exists()]
+    outs = [d / f"{a.company}_mentions.csv" for d in px.finder_run_dirs(a.company) if (d / f"{a.company}_mentions.csv").exists()]
     if not manifest.exists() or not outs:
-        raise SystemExit(f"manifest ({manifest}) or company-finder {a.company}_mentions.csv (under {P.FINDER_ROOT}) not found")
+        raise SystemExit(f"manifest ({manifest}) or company-finder {a.company}_mentions.csv (under {px.FINDER_ROOT}) not found")
     mentions_csv = outs[0]
     run_dir = mentions_csv.parent
     inp = sorted((run_dir.parent.parent / "input").glob(f"{a.company}_input.csv"))

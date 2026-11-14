@@ -17,18 +17,18 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # pipeline/: paths.py, pages.py
-import paths as P  # noqa: E402
+import paths as px  # noqa: E402
 from pages import load, page_at, txt  # noqa: E402
 
 csv.field_size_limit(10**9)
 co, dirs = sys.argv[1], [Path(x) for x in sys.argv[2:]]
-DATA = P.PREPARED
+DATA = px.PREPARED
 META = {}
 for mf in glob.glob(str(DATA / "companies" / f"{co}*__*_mentions.meta.json")):   # also <co>_ncsr__..., <co>_delta__...
     m = json.load(open(mf, encoding="utf-8"))
     META[Path(m["document"]).stem] = m
 SEP = r"(?:\W|<[^>]*>|&#?\w+;)+"                       # what can sit between two words in the HTML
-NAME = re.compile(json.loads(P.config_path(co).read_text(encoding="utf-8"))["company"]["name_regex"], re.I)
+NAME = re.compile(json.loads(px.config_path(co).read_text(encoding="utf-8"))["company"]["name_regex"], re.I)
 
 
 def snippet(sentence: str, context: str, start: int, word: str) -> str:
@@ -80,7 +80,7 @@ for d in dirs:
                          "decided_by": r["decided_by"], "status": r["status"], "company": r["company"], "company_id": r["company_id"],
                          "confidence": r["confidence"], "reason": r["reason"], "page": page, "search_text": sn,
                          "found_in_filing": found, "times_in_filing": times})
-out = P.OUT / co / "indirect_located.csv"
+out = px.OUT / co / "indirect_located.csv"
 with open(out, "w", newline="", encoding="utf-8") as fh:
     w = csv.DictWriter(fh, list(rows[0]) if rows else ["run"])
     w.writeheader()

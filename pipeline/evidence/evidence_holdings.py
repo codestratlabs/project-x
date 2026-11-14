@@ -23,14 +23,14 @@ import re
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # pipeline/: paths.py, pages.py
-import paths as P  # noqa: E402
+import paths as px  # noqa: E402
 
 csv.field_size_limit(10**9)
 co = sys.argv[1]
 HERE = Path(__file__).parent
-ev = P.OUT / co / "evidence"
+ev = px.OUT / co / "evidence"
 R = [r for r in csv.DictReader(open(ev / "evidence_rows.csv", encoding="utf-8")) if r["tier"] in ("A tag", "A N-PORT", "B stated")]
-NAME_RX = json.loads(P.config_path(co).read_text(encoding="utf-8"))["company"]["name_regex"]
+NAME_RX = json.loads(px.config_path(co).read_text(encoding="utf-8"))["company"]["name_regex"]
 FAILED = {}
 if "--use-validation" in sys.argv and (ev / "validation_fail.csv").exists():      # rows that failed validate_all.py go to review
     FAILED = {x["evidence_id"]: x["fail"] for x in csv.DictReader(open(ev / "validation_fail.csv", encoding="utf-8"))}
@@ -67,7 +67,7 @@ def acq_date(r: dict) -> str:
 
 
 SERIES_OF = collections.defaultdict(set)          # registrant CIK -> its fund series names, from Form N-PORT
-_np = P.DUMPS / f"{co}_nport" / "nport_holdings.csv"
+_np = px.DUMPS / f"{co}_nport" / "nport_holdings.csv"
 for x in (csv.DictReader(open(_np, encoding="utf-8")) if _np.exists() else []):   # no N-PORT file: holders stay the filer
     SERIES_OF[x["cik"].lstrip("0")].add(x["series"] or x["registrant"])
 

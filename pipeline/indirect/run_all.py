@@ -11,9 +11,9 @@ from pathlib import Path
 co, out = sys.argv[1], Path(sys.argv[2])
 par = int(sys.argv[sys.argv.index("--parallel") + 1]) if "--parallel" in sys.argv else 4
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # pipeline/: paths.py
-import paths as P  # noqa: E402
+import paths as px  # noqa: E402
 
-D = P.PREPARED
+D = px.PREPARED
 metas = sorted(glob.glob(str(D / "companies" / f"{co}*__*_mentions.meta.json")))
 if "--only" in sys.argv:                               # a chosen subset, e.g. a test sample
     keep = {Path(x.strip()).name for x in open(sys.argv[sys.argv.index("--only") + 1]).read().splitlines() if x.strip()}   # names can contain spaces ("DEF 14A")

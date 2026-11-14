@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # pipeline/: paths.py
-import paths as P  # noqa: E402
+import paths as px  # noqa: E402
 
 ACC = re.compile(r"(\d{10}-\d{2}-\d{6})")
 csv.field_size_limit(10**8)
@@ -27,7 +27,7 @@ def verdicts(folders: list) -> dict:
     """accession -> {"kept": n, "dropped": n, "names": Counter of the longer names the dropped mentions sat in}."""
     out: dict = collections.defaultdict(lambda: {"kept": 0, "dropped": 0, "names": collections.Counter()})
     for f in folders:
-        for d in P.finder_run_dirs(f):
+        for d in px.finder_run_dirs(f):
             for stem in (f, f"{f}_mentions"):
                 for name, kind in ((f"{stem}.csv", "kept"), (f"{stem}_dropped.csv", "dropped")):
                     p = d / name
@@ -53,5 +53,5 @@ def lookalikes(folders: list) -> dict:
                 e["dropped"], f" (e.g. {e['names'].most_common(1)[0][0]})" if e["names"] else "")
             for acc, e in v.items() if e["dropped"] and not e["kept"]}
     print(f"company-finder verdicts: {len(v)} filing(s) seen in {', '.join(folders)}; {len(look)} look-alike filing(s)"
-          + ("" if v else f" (no finder output found under {P.FINDER_ROOT}: no filing is set aside)"), flush=True)
+          + ("" if v else f" (no finder output found under {px.FINDER_ROOT}: no filing is set aside)"), flush=True)
     return look

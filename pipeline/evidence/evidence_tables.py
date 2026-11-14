@@ -21,7 +21,7 @@ csv.field_size_limit(10**8)
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # pipeline/: paths.py, pages.py
-import paths as P  # noqa: E402
+import paths as px  # noqa: E402
 import second_reader as L2      # noqa: E402  the second table reader (its own table and date rules)
 MONTH = r"(?:January|February|March|April|May|June|July|August|September|October|November|December)"
 COL = [("text", r"\btype\b"), ("date", r"\bdate\b|\bacquired\b"), ("pct", r"%|percent"), ("per_share", r"per\s+share|per\s+unit"), ("unrealized", r"unrealized|appreciation|depreciation"),
@@ -562,11 +562,11 @@ def main() -> None:
     ap.add_argument("company")
     ap.add_argument("--folders", nargs="+", required=True)
     ap.add_argument("--workers", type=int, default=2)
-    ap.add_argument("--dumps", default=str(P.DUMPS))
+    ap.add_argument("--dumps", default=str(px.DUMPS))
     ap.add_argument("--only", default="")
     a = ap.parse_args()
-    cfg = json.loads(P.config_path(a.company).read_text(encoding="utf-8"))
-    key, ev = cfg["company"]["name_regex"], P.OUT / a.company / "evidence"
+    cfg = json.loads(px.config_path(a.company).read_text(encoding="utf-8"))
+    key, ev = cfg["company"]["name_regex"], px.OUT / a.company / "evidence"
     cache = ev / "table_cache"
     cache.mkdir(parents=True, exist_ok=True)
     files = {}

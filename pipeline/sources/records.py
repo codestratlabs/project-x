@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # pipeline/: paths.py
-import paths as P  # noqa: E402
+import paths as px  # noqa: E402
 
 
 def write(out: Path, name: str, header: list, body: list) -> int:
@@ -136,15 +136,15 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("company")
     ap.add_argument("--cik", required=True, help="the company's own CIK (Form D)")
-    ap.add_argument("--formd-db", default=str(P.FORMD_DB))
-    ap.add_argument("--employee-dir", default=str(P.DUMPS / "employee_docs" / "raw"), help="DOL Form 5500 rows (form5500_rows.csv ...)")
+    ap.add_argument("--formd-db", default=str(px.FORMD_DB))
+    ap.add_argument("--employee-dir", default=str(px.DUMPS / "employee_docs" / "raw"), help="DOL Form 5500 rows (form5500_rows.csv ...)")
     a = ap.parse_args()
     co = a.company
-    cfg = json.loads(P.config_path(co).read_text(encoding="utf-8"))
-    inputs, np_csv = P.INPUTS / co, P.DUMPS / f"{co}_nport" / "nport_holdings.csv"
+    cfg = json.loads(px.config_path(co).read_text(encoding="utf-8"))
+    inputs, np_csv = px.INPUTS / co, px.DUMPS / f"{co}_nport" / "nport_holdings.csv"
     steps = [("N-PORT price marks", lambda: marks(str(np_csv), cfg, inputs)),
              ("DOL Form 5500", lambda: form5500(Path(a.employee_dir), cfg, inputs)),
-             ("Form D offerings", lambda: formd_offerings(Path(a.formd_db), a.cik.zfill(10), P.OUT / co / "formd_offerings.csv"))]
+             ("Form D offerings", lambda: formd_offerings(Path(a.formd_db), a.cik.zfill(10), px.OUT / co / "formd_offerings.csv"))]
     missing = []
     for name, fn in steps:
         try:

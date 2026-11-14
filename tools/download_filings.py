@@ -78,7 +78,7 @@ def main() -> None:
     ap.add_argument("--term", action="append", default=[], help="extra search phrase (repeatable)")
     ap.add_argument("--only-terms", action="store_true", help="search only the --term phrases, not the config name and aliases")
     ap.add_argument("--skip-forms", default="NPORT-P,NPORT-P/A", help="comma list of forms listed but not downloaded ('' = none)")
-    ap.add_argument("--dumps", default=str(sec.P.DUMPS))
+    ap.add_argument("--dumps", default=str(sec.px.DUMPS))
     ap.add_argument("--start", default="2001-01-01", help="first filing date searched (full-text search starts in 2001)")
     ap.add_argument("--list-only", action="store_true", help="write the hit list, download nothing")
     a = ap.parse_args()
