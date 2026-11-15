@@ -36,6 +36,8 @@ pipeline/
     run_all.py                  runs indirect_mentions.py over all prepared filings of a company
     indirect_mentions.py        trigger words -> rules -> model (GPT-4.1) -> code check -> second model
     scope.py, mentions_map.py, text_llm.py   paragraphs, company mentions per paragraph, model calls
+    html_reader/                pinned copy of company-finder's HTML reader, so the paragraphs the indirect step
+                                works on (and its page numbers) do not change when company-finder changes
     locate_mentions.py          printed page and highlight link of each indirect mention
   pages.py                      printed page numbers (shared by locate.py and locate_mentions.py)
   findings_excel.py             the findings workbook

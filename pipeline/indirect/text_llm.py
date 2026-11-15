@@ -17,6 +17,7 @@ import pymupdf
 import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # pipeline/: paths.py
+sys.path.insert(0, str(Path(__file__).resolve().parent))       # indirect/: html_reader
 import paths as px  # noqa: E402
 
 ENV_FILE = px.ENV_FILE
@@ -78,14 +79,7 @@ def _load_html_paragraphs(path: str) -> list[Para]:
     """HTML / EDGAR filing, read with the pipeline's own HTML extractor (the text the earlier run matched on; pymupdf drops
     text from many EDGAR files). Pages are the filing's own page breaks (page-break-after/before: always), which is also
     how the earlier run numbered pages. A filing without page breaks gets virtual pages of about PAGE_CHARS characters."""
-    import sys
-    pipeline = px.FINDER
-    if str(pipeline) not in sys.path:
-        sys.path.insert(0, str(pipeline))
-    try:
-        from company_finder import extract as E
-    except ImportError as exc:  # pragma: no cover
-        raise SystemExit(f"HTML filings need the company-finder package ({pipeline}): {exc}")
+    from html_reader import extract as E
     raw = Path(path).read_bytes().decode("utf-8", "ignore")
     raw = _source_newlines_to_spaces(raw)
     parts = _PAGE_BREAK.split(raw)
