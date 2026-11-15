@@ -6,6 +6,7 @@ search for, so a link opens the filing at the pronoun, highlighted, the same way
         -> work/out/<co>/indirect_located.csv
 
 Rows kept: every trigger the model decided (decided_by = llm), and every trigger resolved to the company.
+name_in_paragraph = yes when the trigger's paragraph itself names the company: string match already has that paragraph.
 """
 from __future__ import annotations
 
@@ -79,7 +80,8 @@ for d in dirs:
                          "url": m["sec_url"], "trigger": r["trigger"], "trigger_type": r["trigger_type"], "sentence": r["sentence"],
                          "decided_by": r["decided_by"], "status": r["status"], "company": r["company"], "company_id": r["company_id"],
                          "confidence": r["confidence"], "reason": r["reason"], "page": page, "search_text": sn,
-                         "found_in_filing": found, "times_in_filing": times})
+                         "found_in_filing": found, "times_in_filing": times,
+                         "name_in_paragraph": "yes" if NAME.search(r["context"] or "") else "no"})
 out = px.OUT / co / "indirect_located.csv"
 with open(out, "w", newline="", encoding="utf-8") as fh:
     w = csv.DictWriter(fh, list(rows[0]) if rows else ["run"])

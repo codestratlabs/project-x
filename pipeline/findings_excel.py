@@ -232,19 +232,9 @@ AC = [("#", "#", 6), ("kind", "Kind", 11), ("form", "Form", 8), ("filer", "Filed
       ("text", "Evidence (table row or sentence, as printed)", 80), ("para", "Whole paragraph (sentences only)", 90), ("pno", "Paragraph no.", 9), ("status", "What happened to it", 44), ("page", "Page", 9), ("link", "Source (opens at the text)", 10)]
 sheet(wb, "All evidence", AC, allr)
 
-# Indirect mentions: pronouns (it / its / they / the company ...) the model tied to the company, and the 50-filing test
+# Indirect mentions: pronouns (it / its / they / the company ...) the model tied to the company, only where the
+# paragraph does not name the company itself (a paragraph that names it is already in All evidence from string match)
 IND = rd(px.OUT / co / "indirect_located.csv")
-SAMPLE_LIST = px.OUT / co / "indirect_sample50" / "sample_filings.txt"   # optional: the filings of a hand-checked test set (meta paths), one per line
-
-
-def _meta(x: str):
-    """A listed meta file, or the file of the same name in the prepared folder (the list may hold paths from another checkout)."""
-    p = Path(x.strip())
-    return p if p.exists() else px.PREPARED / "companies" / p.name
-
-
-SAMPLE = {__import__("json").load(open(m))["accession"] for m in map(_meta, SAMPLE_LIST.read_text().splitlines() if SAMPLE_LIST.exists() else [])
-          if m.name and m.exists()}
 
 
 def ind_row(r):
@@ -259,22 +249,20 @@ def ind_row(r):
 IC = [("#", "#", 6), ("form", "Form", 8), ("filer", "Filed by", 28), ("filed", "Filing date", 11), ("word", "Word", 12),
       ("text", "Sentence, as printed", 80), ("answer", "Refers to (model)", 22), ("conf", "Confidence", 10), ("reason", "Model's reason", 44),
       ("page", "Page", 9), ("search", "Search text (Ctrl+F)", 34), ("link", "Source (opens at the word)", 10)]
-seen, ind = set(), []
+seen, ind, ind_dup = set(), [], 0
+# rows whose paragraph does not name the company first: the same words on the same page can be two places, one in a
+# paragraph that names the company and one that does not; the second is new evidence and must not be dropped as a repeat
+IND.sort(key=lambda r: r.get("name_in_paragraph") == "yes")
 for r in IND:                                           # the same pronoun can be in two runs: keep one
     k = (r["accession"], r["search_text"], r["page"])     # same words on the same page = the same place in the filing
     if r["company_id"].startswith("C") and r["status"] == "resolved" and k not in seen:
         seen.add(k)
+        if r.get("name_in_paragraph") == "yes":            # the paragraph is already an All evidence row: not repeated here
+            ind_dup += 1
+            continue
         ind.append(ind_row(r))
 ind.sort(key=lambda r: (r["filed"], r["acc"]))
-seen_t, test = set(), []                                # the 50-filing test: only the places the model tied to the company
-for r in IND:
-    k = (r["accession"], r["search_text"], r["page"])
-    if r["accession"] in SAMPLE and r["company_id"].startswith("C") and r["status"] == "resolved" and k not in seen_t:
-        seen_t.add(k)
-        test.append(ind_row(r))
-test.sort(key=lambda r: (r["filed"], r["acc"]))
 sheet(wb, "Indirect mentions", IC, ind)
-sheet(wb, "Indirect test (50 filings)", IC, test)
 
 # About
 s = wb.active
@@ -282,7 +270,7 @@ s.title = "About"
 s.sheet_view.showGridLines = False
 s["A1"] = f"{name}: findings and their ground truth"
 s["A1"].font = Font(name=FONT, size=16, bold=True)
-s["A2"] = "Every number comes from rules, no language model · the language model is used only in the two Indirect sheets, to say who a pronoun refers to"
+s["A2"] = "Every number comes from rules, no language model · the language model is used only in the Indirect mentions sheet, to say who a pronoun refers to"
 s["A2"].font = Font(name=FONT, size=9)
 s["A4"] = "Each finding sits next to its ground truth: the exact table row, sentence or structured record it was taken from, with every value as written in the source."
 s["A4"].font = Font(name=FONT, size=10)
@@ -297,10 +285,10 @@ about = [("Holdings (filings)", "Fund filings (N-CSR, N-CSRS, N-2, 424B3, 10-Q, 
          ("Form D offerings", "SEC Form D data set (the company's own notices)", "Date of first sale, amount offered and sold, investors", "Structured record, no model", "Each value compared with the filing record, field by field"),
          ("DOL 401(k)", "Department of Labor Form 5500", "Plan participants (U.S. staff minimum)", "Structured record, no model", "Each number compared with the original DOL field"),
          ("All evidence", "Every filing that names the company", "Every mention found: each table row, iXBRL tag, N-CEN field and sentence, and what happened to it", "Scan of every filing for the name", "Status column: verified, held back (with the reason), or not a position"),
-         ("Indirect mentions", "Filings that name the company", "Sentences where it / its / they / the company points back to the company",
-          "Rule picks pronouns within 2 paragraphs of a mention; the language model (GPT-4.1) decides who each one refers to; code checks the name is in the same or the 2 sentences before; a second model (Claude Opus 5.5) must agree", "Model's reason and confidence shown; the sentence and link let anyone check it"),
-         ("Indirect test (50 filings)", "50 filings where the company is named in text (not tables)", "Only the sentences where a pronoun refers to the company",
-          "Same as Indirect mentions", "Test set: read the sentence at the link and compare with the model's answer")]
+         ("Indirect mentions", "Filings that name the company", "Sentences where it / its / they / the company points back to the company, in a paragraph that does not name it",
+          "Rule picks pronouns within 2 paragraphs of a mention; the language model (GPT-4.1) decides who each one refers to; code checks the name is in the same or the 2 sentences before; a second model (Claude Opus 5.5) must agree. "
+          f"{len(ind) + ind_dup} places found; {ind_dup} sit in a paragraph that names the company, which All evidence already has, so they are not repeated here",
+          "Model's reason and confidence shown; the sentence and link let anyone check it")]
 for j, row in enumerate(about, 7):
     for i, v in enumerate(row[:4] + (f"=COUNTA('{row[0]}'!A:A)-1",) + row[4:], 1):
         c = s.cell(j, i, v)
@@ -317,12 +305,12 @@ for k, (a, b) in enumerate([("Side by side", "Every value the pipeline produced 
     s.cell(k, 2, b).font = Font(name=FONT, size=9)
 for col, wd in zip("ABCDEF", (22, 44, 40, 34, 8, 60)):
     s.column_dimensions[col].width = wd
-first = ["All evidence", "Indirect mentions", "Indirect test (50 filings)", "About"]
+first = ["About", "All evidence", "Indirect mentions"]
 wb._sheets = [wb[n] for n in first] + [x for x in wb._sheets if x.title not in first]
 wb.active = 0
 wb.calculation = CalcProperties(fullCalcOnLoad=True)
 dest.mkdir(parents=True, exist_ok=True)
 out = dest / f"{name.split(',')[0].replace(' ', '_')}_findings.xlsx"
 wb.save(out)
-print(out, {"holdings": len(hold), "nport": len(npr), "formd": len(fdr), "dol": len(dol), "all evidence": len(allr), "indirect": len(ind), "indirect test": len(test),
+print(out, {"holdings": len(hold), "nport": len(npr), "formd": len(fdr), "dol": len(dol), "all evidence": len(allr), "indirect found": len(ind) + ind_dup, "indirect already in All evidence": ind_dup, "indirect": len(ind),
             "holdings not matched": sum(1 for h in hold if h["match"].startswith("No"))})
