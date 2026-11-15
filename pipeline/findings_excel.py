@@ -305,7 +305,7 @@ for k, (a, b) in enumerate([("Side by side", "Every value the pipeline produced 
     s.cell(k, 2, b).font = Font(name=FONT, size=9)
 for col, wd in zip("ABCDEF", (22, 44, 40, 34, 8, 60)):
     s.column_dimensions[col].width = wd
-first = ["All evidence", "Indirect mentions", "About"]
+first = ["About", "All evidence", "Indirect mentions"]
 wb._sheets = [wb[n] for n in first] + [x for x in wb._sheets if x.title not in first]
 wb.active = 0
 wb.calculation = CalcProperties(fullCalcOnLoad=True)
