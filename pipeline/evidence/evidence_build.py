@@ -101,10 +101,14 @@ _dumps = px.DUMPS
 LOOK = lookalikes(cfg.get("dump_folders") or [co] + sorted(p.name[:-13] for p in _dumps.glob(f"{co}_*_manifest.csv")))
 n_look = 0
 for r in out:
-    if r["accession"] in LOOK and r["tier"] != "not a position":
-        r["tier"], r["why"] = "not a position", LOOK[r["accession"]]
-        n_look += 1
+    if r["accession"] in LOOK:
+        n_look += r["tier"] != "not a position"
+        r["tier"], r["why"] = "not a position", LOOK[r["accession"]]   # also replaces an earlier reason ("no amount in the row"): the row is not the company
 print(f"look-alike filings set aside: {len(LOOK)}; table rows: {n_look}")
+with open(ev / "lookalike_filings.csv", "w", newline="", encoding="utf-8") as fh:   # findings_excel labels the sentences of these filings too
+    w = csv.writer(fh)
+    w.writerow(["accession", "why"])
+    w.writerows(sorted(LOOK.items()))
 # a table with a row confirmed by N-PORT has its unit proven for the other rows of that table
 proven = {(r["accession"], r["table"]) for r in out if r["tier"] == "A N-PORT"} | {(r["accession"], r["header"]) for r in out if r["tier"] == "A N-PORT"}
 for r in out:
