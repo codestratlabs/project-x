@@ -16,6 +16,8 @@ tools/                          getting the data (SEC client: User-Agent, 5 requ
   build_formd_db.py             the company's own Form D notices -> input/formd/formd.duckdb
   make_companies_file.py        pipeline/config/<company>.json -> company-finder's companies file
   sec_http.py                   shared SEC access
+  build_pack.py                 one command from downloaded filings to <Name>_findings.xlsx + <Name>_report.docx
+  report_docx.py                the Word report (layout of the Databricks report), counted from the pipeline's outputs
 company-finder/                 finds mentions of a company in filings (string match; optional look-alike check)
 pipeline/
   paths.py                      every folder the pipeline reads or writes (environment variables, see below)
@@ -66,12 +68,17 @@ Data is never in this repo. Folders are set in `pipeline/paths.py` and can be mo
    lists them in `<folder>_dropped.csv`).
 4. **Everything else.** `pipeline/run_company.py <company> --cik ... --name "..." --dest <folder> [--indirect]`:
    records -> evidence (no model) -> prepare -> indirect (only with `--indirect`, costs money) -> workbook.
+5. **Report.** `tools/report_docx.py <company> "<Name>" <findings.xlsx> <out.docx> --template Databricks_report.docx`.
+
+`tools/build_pack.py` runs steps 3 to 5 in one command for filings that are already downloaded (see below).
 
 ## Setup
 
+Python 3.10 or newer (macOS's built-in `python3` is 3.9; use e.g. `python3.11`).
+
 ```
 cd company-finder
-python3 -m venv .venv
+python3.11 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 cp ../.env.example .env        # fill OPENROUTER_API_KEY and SEC_USER_AGENT (or export them)
 ```
@@ -89,3 +96,27 @@ Steps can be run on their own, e.g. the indirect step for one filing without a m
 company-finder/.venv/bin/python pipeline/indirect/indirect_mentions.py <filing> --mentions <filing>_mentions.csv \
   --filer "<filer>" --filer-implicit off --dry-run
 ```
+
+## One command for a pack (filings already downloaded)
+
+For a company whose filings are already in a folder (one subfolder per form, plus a manifest CSV, the layout of
+`tools/download_filings.py`), `tools/build_pack.py` runs string match (exact names and aliases, one row per company per
+paragraph, look-alike names dropped by the model), N-PORT from the team database, the structured records, the evidence,
+the indirect mentions and the workbook, then writes the Word report. The source folders are only read: they are linked
+into `work/dumps/`, and company-finder writes to `work/finder/`.
+
+```
+company-finder/.venv/bin/python tools/build_pack.py kalshi --cik 0001806928 --name "Kalshi Inc." \
+  --filings <data>/sec_filings/kalshi --manifest <data>/sec_filings/kalshi_manifest.csv \
+  --nport-db <data>/nport_team.duckdb --formd-db <data>/formd.duckdb --employee-dir <data>/employee_docs/raw \
+  --template <data>/Databricks_report.docx --dest <output>/Kalshi --hand-checked 3
+```
+
+Output: `<dest>/Kalshi_findings.xlsx` and `<dest>/Kalshi_report.docx`. `--finder-input <file>` uses an existing
+company-finder companies file instead of one built from the config; `--no-indirect` and `--no-llm` skip the model steps;
+`--hand-checked N` puts the result of reading the indirect words by hand into the report. Configs used so far:
+`kalshi.json`, `arize_ai.json` (model cost of a run: about $0.23 and $0.02).
+
+Known gaps (not fixed yet): the DOL 401(k) sheet reads only the full Form 5500, so a company that files the short
+Form 5500-SF (Kalshi) shows no rows there (the report lists the 5500-SF numbers); an N-CEN fund-transaction row is
+labelled "Verified: same row as one in Holdings" even when Holdings is empty (the report explains it).

@@ -1,0 +1,18 @@
+{
+ "as_of": "2026-11-15",
+ "fy_end_month": 12,
+ "health_plan": "501",
+ "k401_plan": "001",
+ "name": "Kalshi",
+ "company": {
+  "cik": "0001806928",
+  "legal_name": "Kalshi Inc.",
+  "match": "KALSHI",
+  "name_regex": "kalshi",
+  "aliases": ["Kalshi", "Kalshi Inc", "KalshiEX", "KalshiEX LLC", "kalshi.com"],
+  "employee_company": "Kalshi",
+  "spv_key": "kalshi",
+  "ein": "832967353",
+  "description": "Kalshi is a US private fintech company (Delaware corp., founded 2018, New York) that runs a federally regulated prediction market: through its subsidiary KalshiEX LLC, a CFTC-designated contract market, it lists event contracts on the outcome of real-world events; it raises venture capital (Form D filings) and is held by venture and interval funds."
+ }
+}
