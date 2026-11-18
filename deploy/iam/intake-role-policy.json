@@ -1,0 +1,44 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ListInputsAndRunRecords",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::${BUCKET}",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": [
+            "input/*",
+            "runs/*"
+          ]
+        },
+        "StringEquals": {
+          "s3:ResourceAccount": "${ACCOUNT_ID}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadRunRecords",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::${BUCKET}/runs/*/*.json",
+      "Condition": {
+        "StringEquals": {
+          "s3:ResourceAccount": "${ACCOUNT_ID}"
+        }
+      }
+    },
+    {
+      "Sid": "WriteQueuedRunRecords",
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::${BUCKET}/runs/*/*.json",
+      "Condition": {
+        "StringEquals": {
+          "s3:ResourceAccount": "${ACCOUNT_ID}"
+        }
+      }
+    }
+  ]
+}

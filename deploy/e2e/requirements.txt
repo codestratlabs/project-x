@@ -1,0 +1,6 @@
+# Host-side tools of the local end-to-end run (deploy/e2e/run_e2e.py), in a scratch virtual environment of their
+# own (Python 3.12). The pipeline itself runs in the image; these only drive it: moto_server stands in for S3 and
+# Secrets Manager, boto3 seeds and checks the bucket, openpyxl compares the workbooks.
+moto[server,s3,secretsmanager]==5.2.5
+boto3==1.44.4
+openpyxl==3.1.5

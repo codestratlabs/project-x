@@ -1,0 +1,7 @@
+{
+  "sec_api": {
+    "slots": 1,
+    "description": "Every SEC EDGAR call of this Airflow: task download of company_evidence, and the SEC ingestion DAG. One slot, so one SEC client runs at a time (it paces itself at 5 requests/s; SEC allows 10).",
+    "include_deferred": false
+  }
+}

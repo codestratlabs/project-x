@@ -1,0 +1,91 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ListPipelineBucket",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::${BUCKET}",
+      "Condition": {
+        "StringEquals": {
+          "s3:ResourceAccount": "${ACCOUNT_ID}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadInputAndReference",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": [
+        "arn:aws:s3:::${BUCKET}/input/*/company.json",
+        "arn:aws:s3:::${BUCKET}/reference/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "s3:ResourceAccount": "${ACCOUNT_ID}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadWriteRawFilingsNoDelete",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:AbortMultipartUpload"
+      ],
+      "Resource": "arn:aws:s3:::${BUCKET}/raw/*",
+      "Condition": {
+        "StringEquals": {
+          "s3:ResourceAccount": "${ACCOUNT_ID}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadWriteIntermediateAndReports",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:AbortMultipartUpload"
+      ],
+      "Resource": [
+        "arn:aws:s3:::${BUCKET}/intermediate/*",
+        "arn:aws:s3:::${BUCKET}/reports/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "s3:ResourceAccount": "${ACCOUNT_ID}"
+        }
+      }
+    },
+    {
+      "Sid": "ReplaceLatestWorkbookAndEarlierAttempts",
+      "Effect": "Allow",
+      "Action": "s3:DeleteObject",
+      "Resource": [
+        "arn:aws:s3:::${BUCKET}/reports/*/latest/*",
+        "arn:aws:s3:::${BUCKET}/intermediate/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "s3:ResourceAccount": "${ACCOUNT_ID}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadWriteRunRecords",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
+      "Resource": "arn:aws:s3:::${BUCKET}/runs/*/*.json",
+      "Condition": {
+        "StringEquals": {
+          "s3:ResourceAccount": "${ACCOUNT_ID}"
+        }
+      }
+    }
+  ]
+}

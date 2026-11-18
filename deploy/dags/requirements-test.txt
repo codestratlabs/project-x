@@ -1,0 +1,9 @@
+# Test environment for deploy/dags (Python 3.12). Airflow first, with its official constraints:
+#   pip install "apache-airflow[docker,amazon]==3.2.2" \
+#     --constraint https://raw.githubusercontent.com/apache/airflow/constraints-3.2.2/constraints-3.12.txt
+#   pip install -r deploy/dags/requirements-test.txt
+#   python -m pytest -p no:cacheprovider deploy/dags/tests
+# Without Airflow, tests/test_px_intake.py still runs (pytest and moto only) and tests/test_dag_integrity.py is
+# skipped with the reason.
+pytest>=8
+moto[s3]>=5

@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "px-runner"
+version = "0.1.0"
+description = "Task wrapper for the company evidence pipeline on AWS: stage from S3, run one pipeline step, upload, record (deploy/INTERFACES.md)"
+requires-python = ">=3.12"
+# boto3 1.28 is the first release that reads AWS_ENDPOINT_URL; the pipeline's own dependencies are in
+# company-finder/requirements.txt
+dependencies = ["boto3>=1.28"]
+
+[project.optional-dependencies]
+test = ["pytest", "moto[s3,secretsmanager]>=5", "openpyxl"]
+
+[tool.setuptools]
+packages = ["px_runner"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
