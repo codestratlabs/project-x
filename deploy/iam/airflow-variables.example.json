@@ -1,0 +1,21 @@
+{
+  "px_bucket": "company-reports-data",
+  "px_region": "us-east-2",
+  "px_image": "${IMAGE_URI}",
+  "px_task_backend": "docker",
+  "px_docker_url": "unix://var/run/docker.sock",
+  "px_large_queue": "evidence_large",
+  "px_queue": "${PX_QUEUE}",
+  "px_ecs_cluster": "${ECS_CLUSTER}",
+  "px_ecs_task_definition": "${ECS_TASK_DEFINITION}",
+  "px_ecs_subnets": "${ECS_SUBNETS}",
+  "px_ecs_security_groups": "${ECS_SECURITY_GROUPS}",
+  "px_ecs_task_role_sec": "${ECS_TASK_ROLE_SEC}",
+  "px_ecs_task_role_llm": "${ECS_TASK_ROLE_LLM}",
+  "px_alert_emails": "${ALERT_EMAILS}",
+  "px_refresh_days": "7",
+  "px_stale_hours": "24",
+  "px_sec_pool": "sec_api",
+  "px_secret_sec": "px/sec-user-agent",
+  "px_secret_llm": "px/openrouter-api-key"
+}

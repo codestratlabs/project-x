@@ -1,0 +1,50 @@
+# Ignore file for deploy/image/Dockerfile. The build context is the repository root; BuildKit reads this file
+# because it sits next to the Dockerfile and carries its name. Patterns are relative to the repository root and a
+# later line wins over an earlier one.
+#
+# An allowlist: everything is left out, then only what the image needs is let back in.
+*
+!pipeline/
+!tools/
+!company-finder/company_finder.py
+!company-finder/company_finder/
+!company-finder/requirements.txt
+!deploy/runner/
+!deploy/image/constraints.txt
+
+# Never sent, even from inside the folders let back in above.
+# Secrets (company-finder/.env holds OPENROUTER_API_KEY and SEC_USER_AGENT).
+**/.env
+**/.env.*
+**/*.env
+**/*.pem
+**/*.key
+**/.aws
+**/.netrc
+# Environments, caches and build leftovers.
+**/.venv
+**/venv
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/.coverage
+**/.DS_Store
+deploy/runner/build
+deploy/runner/dist
+deploy/runner/**/*.egg-info
+# Data and outputs (the same as .gitignore).
+**/work
+**/dumps
+**/input
+**/out
+**/*.duckdb
+**/*.xlsx
+**/*.csv
+**/*.zip
+**/*.pdf
+**/*.htm
+**/*.html
+**/*.orig
+**/*.bak*
