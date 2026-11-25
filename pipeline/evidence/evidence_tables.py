@@ -23,9 +23,10 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # pipeline/: paths.py, pages.py
 import paths as px  # noqa: E402
 import second_reader as L2      # noqa: E402  the second table reader (its own table and date rules)
+import layout_reader as LR      # noqa: E402  filings made of absolutely placed text boxes (HTML converted from PDF)
 MONTH = r"(?:January|February|March|April|May|June|July|August|September|October|November|December)"
 COL = [("text", r"\btype\b"), ("date", r"\bdate\b|\bacquired\b"), ("pct", r"%|percent"), ("per_share", r"per\s+share|per\s+unit"), ("unrealized", r"unrealized|appreciation|depreciation"),
-       ("foot", r"footnote"), ("qty", r"units?\s*/\s*commitment"), ("funded", r"(?<!un)funded\s+commitment"), ("commitment", r"unfunded|commitment|undrawn"), ("value", r"\b(fair|market)?\s*value\b"), ("cost", r"\bcost\b"), ("qty", r"\bshares\b|\bprincipal\b|\bpar\b|\bunits\b|\bquantity\b|\bface\b|\bnumber of\b"), ("date", r"\bdate\b|\bacquired\b"), ("pct", r"%|percent")]
+       ("foot", r"footnote"), ("qty", r"units?\s*/\s*commitment"), ("total", r"^\s*total\b(?![^|]*\b(?:undrawn|unfunded)\b)[^|]*\bcommitments?\b"), ("funded", r"(?<!un)funded\s+commitment|(?<!un)drawn\s+commitments?|\bless\s*:?\s*drawn\b"), ("commitment", r"unfunded|commitment|undrawn"), ("qty", r"\bpar\s+values?\b|\bprincipal\s+amount\b"), ("value", r"\b(fair|market)?\s*value\b"), ("cost", r"\bcost\b"), ("qty", r"\bshares\b|\bprincipal\b|\bpar\b|\bunits\b|\bquantity\b|\bface\b|\bnumber of\b"), ("date", r"\bdate\b|\bacquired\b"), ("pct", r"%|percent")]
 HEAD_UNIT = re.compile(r"\(?\$?\s*000[’'`]?s?\)?|thousands|millions|\$\s?m\b", re.I)
 PAGE_UNIT = re.compile(r"(?:\bin\s|\$\s|expressed in\s|amounts?\s|value\s|cost\s)[^.<]{0,40}?(thousands|millions|\$\s?000[’'`]?s?)\b", re.I)
 NUMBER = re.compile(r"^[-−–]?\s*\(?\$?\s*\(?\s*(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*\)?\s*[*†‡#]*\s*(?:\([a-z0-9]{1,3}\)\s*,?\s*)*[a-z]{0,1}$")
@@ -49,12 +50,15 @@ def grid(tr: str) -> list:
 
 
 def header_of(rows: list) -> list:
-    """The printed header cells of a table, or nothing. A header row names a value or a cost column and holds no large number."""
-    for tr in rows[:30]:
-        g = grid(tr)
-        joined = " ".join(c[2] for c in g)
-        if g and len(joined) < 240 and re.search(r"\bvalue\b|\bcost\b", joined, re.I) and not re.search(r"\d,\d{3}", joined):
-            return g
+    """The printed header cells of a table, or nothing. A header row names a value or a cost column and holds no large
+    number. Only a table with no such row may take a row that names a commitment column (an unfunded-commitments table
+    prints its own header: "Total commitments | Less: drawn | Total undrawn")."""
+    for words in (r"\bvalue\b|\bcost\b", r"\bcommitments?\b|\bundrawn\b|\bunfunded\b"):
+        for tr in rows[:30]:
+            g = grid(tr)
+            joined = " ".join(c[2] for c in g)
+            if g and len(joined) < 240 and re.search(words, joined, re.I) and not re.search(r"\d,\d{3}", joined):
+                return g
     return []
 
 
@@ -230,7 +234,7 @@ def from_table(t: str, m, key: str, last: list):
     # Amounts sit at the end of a schedule row in the order of the last header columns (par, cost, fair value, % of net
     # assets). When the row ends with as many amount cells as the header ends with amount columns, pair them from the right:
     # this survives header and data cells that are split or spanned differently ($ signs, brackets, empty spacer cells).
-    AMT = ("qty", "cost", "value", "commitment", "pct", "per_share", "unrealized", "funded")
+    AMT = ("qty", "cost", "value", "commitment", "pct", "per_share", "unrealized", "funded", "total")
     hk = []
     kstart = next((c[0] for c in g if re.search(key, c[2], re.I)), 0)
     for c in sorted([k for k in cols if k[2] != "foot" and k[0] >= kstart], key=lambda k: k[0]):   # columns after the name
@@ -335,6 +339,44 @@ def from_text(t: str, m, key: str):
     return dict(method="text layout", name=r[1][:140], qty=float(r[2].replace(",", "")), cost=float(c[1].replace(",", "")) if c else None, value=float(r[3].replace(",", "")), date="", table="text", row=m.start(), header="shares then value, as laid out", unit=u or "no unit printed; dollars", unit_factor=f or 1, raw=x[:300], problem="", qty_factor=1)
 
 
+def from_layout(t: str, m, key: str, lay):
+    """A holding on a page of absolutely placed text boxes: the boxes on the name's line (and the lines its text runs on to)
+    are the row; each number takes the column label printed above it, right-aligned (layout_reader.assign). A row whose
+    numbers do not all have a label above them is kept for review, never read by column order."""
+    i = lay.line_at(m.start())
+    if i is None:
+        return None
+    cells = lay.lines[i][3]
+    at = [c[0] for c in cells if re.search(key, c[2], re.I)]
+    rec, _ = LR.record(lay, i, min(at) if at else cells[0][0])
+    nums = [c for c in rec if LR.number(c[2]) is not None]
+    if not nums:
+        return None
+    got, labels, why = LR.assign(lay, i, rec, col_of)
+    raw = " | ".join(c[2] for c in rec)
+    name = " ".join(c[2] for c in rec if LR.number(c[2]) is None and not re.fullmatch(r"\.{2,}", c[2]))[:140]
+    header = " | ".join(labels[k] for k in ("qty", "cost", "value", "commitment", "funded") if k in labels)
+    f, u = None, ""
+    for lab in labels.values():
+        f, u = unit_of(lab)
+        if f:
+            u = u + " (column header)"
+            break
+    if not f:
+        f, u = page_unit(t, m.start())
+    qlab = labels.get("qty", "")
+    qf = (f or 1) if re.search(r"principal|par\b|amount", qlab, re.I) and not re.search(r"shares", qlab, re.I) and unit_of(qlab)[0] else 1
+    num = lambda k: LR.number(got[k]) if k in got else None   # noqa: E731
+    problem = ""
+    if why:
+        problem = "box layout: " + why
+    elif not got.get("value") and not got.get("cost") and not got.get("commitment"):
+        problem = "box layout: no value column"
+    return dict(method="text layout", name=name, qty=num("qty"), cost=num("cost"), value=num("value"), commitment=num("commitment"), date="",
+                table="layout", row=lay.lines[i][0], header=header or "no column label above the numbers", unit=u or "no unit printed; dollars",
+                unit_factor=f or 1, raw=raw[:300], problem=problem, qty_factor=qf)
+
+
 PDF_PROSE: list = []
 
 
@@ -407,7 +449,7 @@ def sentence(t: str, m) -> str:
     return (left + " " + right).strip()[:1500]
 
 
-CACHE_V = "px2-layout_v2"     # cache version key (a stored value, not a module name): bump when a reader changes, so cached rows of older code are not reused
+CACHE_V = "px4-parvalue"     # cache version key (a stored value, not a module name): bump when a reader changes, so cached rows of older code are not reused
 RECOVER = ("no column header found", "amount cells at the end of the row but", "no number under a known column")
 
 
@@ -456,7 +498,7 @@ def norm_any(d: str) -> str:
     return L2.norm_date(d) or (L2.num_date(n) if n else "")
 
 
-def check_date(d: str, src: str, sch: str, ctx2: dict, pos: int, filed: str) -> tuple:
+def check_date(d: str, src: str, sch: str, ctx2: dict, pos: int, filed: str, per: str = "") -> tuple:
     """Two readings of a row's date must agree. The first is as_of(): the nearest dated heading above the row. The second is the second reader's: the
     schedule heading whose schedule has not ended at the row (a statement or notes heading ends it), else a dated notes heading. A disagreement,
     a schedule that has ended, or a date after the filing gives no date (the row goes to review), never a guess. When only the second reader finds
@@ -481,6 +523,8 @@ def check_date(d: str, src: str, sch: str, ctx2: dict, pos: int, filed: str) -> 
         if second in (None, first):
             return d, src, sch
         if second == "ended":
+            if per and norm_any(per) == first:      # N-CSR/N-CSRS: one date for every holdings table of the report, printed on its cover
+                return d, "reporting period on the cover of the N-CSR; the heading above has the same date", sch
             return "", f"no date found: the schedule dated {d} ends before this table", sch
         return "", f"no date found: two date readings differ ({d} vs {second})", sch
     if second and second != "ended":
@@ -518,12 +562,15 @@ def scan(job: tuple) -> dict:
             anch, per = anchors(t), period(t, form)
             ctx2 = {"t": t, "filed": filed}          # the second reader's state: schedule and notes headings, read once per filing
             last, seen, prose_seen = [[]], set(), set()
+            lay = LR.Layout(t) if len(re.findall(r"position\s*:\s*absolute", t[:400000], re.I)) > 200 else None
             for m in re.finditer(key, t, re.I):
                 r = from_table(t, m, key, last)
                 if r is not None and r.get("method") == "table":
                     r = second_reading(t, m, key, ctx2, r)
                 if r is None:
                     r = from_text(t, m, key)
+                if r is None and lay is not None:
+                    r = from_layout(t, m, key, lay)
                 if r is None:
                     res["other"] += 1
                     sent = sentence(t, m)
@@ -539,7 +586,7 @@ def scan(job: tuple) -> dict:
                     seen.add(k)
                     if not x.get("as_of"):
                         d, src, sch = as_of(anch, per, m.start())
-                        x["as_of"], x["as_of_source"], x["schedule"] = check_date(d, src, sch, ctx2, m.start(), filed)
+                        x["as_of"], x["as_of_source"], x["schedule"] = check_date(d, src, sch, ctx2, m.start(), filed, per)
                     res["rows"].append(x)
     except Exception as e:
         res["error"] = f"{type(e).__name__}: {e}"[:160]

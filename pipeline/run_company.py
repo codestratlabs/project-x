@@ -9,7 +9,9 @@ The same script runs for every company; everything company-specific is in pipeli
 Steps
   1. records         sources/records.py: N-PORT price marks, DOL Form 5500 rows, Form D offerings
   2. evidence        evidence/evidence_tables -> evidence_build -> evidence_holdings -> validate_all
-                     -> evidence_holdings --use-validation -> evidence_facts -> locate      (no model)
+                     -> evidence_holdings --use-validation -> evidence_facts -> locate -> written_proof   (no model)
+                     (prose_reader runs right after the scan: each mention not in a table is read again by the filing's
+                     structure and given a kind)
   3. prepare         prepare_filings.py for each dump folder: each filing with its company-finder mentions
   4. indirect        indirect/run_all.py (GPT-4.1 + a second model; costs money, so only with --indirect)
                      -> indirect/locate_mentions.py (page and highlight link of each mention)
@@ -58,8 +60,9 @@ def main() -> int:
         run("sources/records.py", co, "--cik", a.cik, "--formd-db", a.formd_db)
     if not a.skip_scan:
         run("evidence/evidence_tables.py", co, "--folders", *folders, "--workers", a.workers)
-    for step in (["evidence/evidence_build.py", co], ["evidence/evidence_holdings.py", co], ["evidence/validate_all.py", co],
-                 ["evidence/evidence_holdings.py", co, "--use-validation"], ["evidence/evidence_facts.py", co, a.name], ["evidence/locate.py", co]):
+    for step in (["evidence/prose_reader.py", co], ["evidence/evidence_build.py", co], ["evidence/evidence_holdings.py", co], ["evidence/validate_all.py", co],
+                 ["evidence/evidence_holdings.py", co, "--use-validation"], ["evidence/evidence_facts.py", co, a.name], ["evidence/locate.py", co],
+                 ["evidence/written_proof.py", co]):
         run(*step)
     if not a.skip_prepare:
         for i, f in enumerate(folders):

@@ -127,7 +127,7 @@ for n, (acc, hs) in enumerate(sorted(by_acc.items())):
                 row = " | ".join(txt(tr) for tr in trs[ri:ri + 2]) if ri < len(trs) else ""
             else:
                 a = int(e["row"])
-                row = txt(t[a:a + 1500])
+                row = txt(t[a:a + 60000])[:2500]          # visible text: pages of placed text boxes hold little text per 1,500 characters
             row += " | " + e["name"]
             res["printed"] = "ok" if nums and all(any(s in row for s in shown(v)) for v in nums) else "fail"
             near = txt(t[max(0, a - 8000):a])[-3000:] + " " + e["header"] + " " + e["unit"]

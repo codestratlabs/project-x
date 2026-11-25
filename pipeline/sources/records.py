@@ -83,8 +83,9 @@ def form5500(emp: Path, cfg: dict, out: Path) -> dict:
     for r in f:
         k = (r["FORM_PLAN_YEAR_BEGIN_DATE"][:4], r["SPONS_DFE_PN"])
         latest[k] = r if k not in latest or r["ACK_ID"] > latest[k]["ACK_ID"] else latest[k]
-    n1 = write(out, "dol_form5500.csv", ["FORM_PLAN_YEAR_BEGIN_DATE", "SPONS_DFE_PN", "TOT_ACT_PARTCP_BOY_CNT", "TOT_ACTIVE_PARTCP_CNT"],
-               [[r["FORM_PLAN_YEAR_BEGIN_DATE"], r["SPONS_DFE_PN"], r["TOT_ACT_PARTCP_BOY_CNT"], r["TOT_ACTIVE_PARTCP_CNT"]] for k, r in sorted(latest.items())])
+    n1 = write(out, "dol_form5500.csv", ["FORM_PLAN_YEAR_BEGIN_DATE", "SPONS_DFE_PN", "TOT_ACT_PARTCP_BOY_CNT", "TOT_ACTIVE_PARTCP_CNT", "PLAN_NAME", "ACK_ID"],
+               [[r["FORM_PLAN_YEAR_BEGIN_DATE"], r["SPONS_DFE_PN"], r["TOT_ACT_PARTCP_BOY_CNT"], r["TOT_ACTIVE_PARTCP_CNT"], r.get("PLAN_NAME", ""), r.get("ACK_ID", "")]
+                for k, r in sorted(latest.items())])
     pp = {}
     for k, r in latest.items():
         if r["SPONS_DFE_PN"] == cfg["k401_plan"]:
