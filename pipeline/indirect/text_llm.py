@@ -156,8 +156,91 @@ def _split_long(text: str, limit: int = 2500, target: int = 1500) -> list[str]:
     return out
 
 
+def _local(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def _words(tag: str) -> str:
+    """'totalAmountSold' -> 'Total amount sold'."""
+    w = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", tag).lower()
+    return w[:1].upper() + w[1:]
+
+
+GENERIC = {"value", "dollarAmount", "isEstimate", "item", "amount"}   # say nothing alone: named by their parent
+
+
+def form_d_lines(root) -> list[str]:
+    """A Form D (EDGAR primary_doc.xml) as one labelled line per value, every value exactly as filed, nothing left out
+    and nothing added (no model, no rounding). The label is the field's name in words and the XML element in brackets,
+    e.g. 'Total amount sold: 19624651 (totalAmountSold)'. A related person or a signature is one line."""
+    out = []
+
+    def kids(el):
+        return list(el)
+
+    def text_of(el, name):
+        x = next((k for k in el.iter() if _local(k.tag) == name), None)
+        return " ".join((x.text or "").split()) if x is not None and x.text else ""
+
+    def walk(el, parent: str):
+        name = _local(el.tag)
+        if name == "relatedPersonInfo":
+            nm = " ".join(x for x in (text_of(el, "firstName"), text_of(el, "middleName"), text_of(el, "lastName")) if x)
+            rels = [" ".join((r.text or "").split()) for r in el.iter() if _local(r.tag) == "relationship" and (r.text or "").strip()]
+            addr = next((k for k in el if _local(k.tag) == "relatedPersonAddress"), None)
+            where = ", ".join(" ".join((k.text or "").split()) for k in (addr if addr is not None else []) if (k.text or "").strip())
+            out.append(f"Related person: {nm}" + (f" ({', '.join(rels)})" if rels else "") + (f"; address: {where}" if where else ""))
+            c = text_of(el, "relationshipClarification")
+            if c:
+                out.append(f"Related person clarification ({nm}): {c}")
+            return
+        if name == "signature":
+            parts = [f"{_words(_local(k.tag))} {' '.join(k.text.split())}" for k in el if (k.text or "").strip()]
+            out.append("Signature: " + "; ".join(parts))
+            return
+        ch = kids(el)
+        if not ch:
+            v = " ".join((el.text or "").split())
+            if v:
+                label = _words(parent) + (" (estimate)" if name == "isEstimate" else "") if name in GENERIC else _words(name)
+                if name == "clarificationOfResponse":
+                    label = f"Clarification of response ({_words(parent).lower()})"
+                out.append(f"{label}: {v} ({name if name not in GENERIC else parent + '/' + name})")
+            return
+        for k in ch:
+            walk(k, name)
+
+    for el in root:
+        if _local(el.tag) in ("headerData", "schemaVersion", "submissionType", "testOrLive"):
+            continue                          # filing envelope, not part of the form
+        walk(el, _local(root.tag))
+    return [re.sub(r"\s+", " ", x).strip() for x in out if x.strip()]
+
+
+def _load_form_d_paragraphs(path: str) -> list[Para] | None:
+    """A Form D primary_doc.xml as labelled lines (one paragraph each, page 1); None when the file is not a Form D or does
+    not parse, so it is read as before."""
+    import xml.etree.ElementTree as ET
+    from html_reader import sec
+    data = Path(path).read_bytes()
+    try:
+        if not sec.is_form_d_xml(data):
+            return None
+        root = ET.fromstring(data.strip())
+    except Exception:                         # malformed XML: read as before, never fail the run
+        return None
+    if _local(root.tag) != "edgarSubmission":
+        return None
+    return [Para(i, 1, line) for i, line in enumerate((x for x in form_d_lines(root) if len(x) >= MIN_PARA_CHARS), 1)]
+
+
 def load_paragraphs(pdf: str) -> list[Para]:
-    """Text blocks of every page, whitespace-normalised; tiny blocks (page numbers, bullets) dropped."""
+    """Text blocks of every page, whitespace-normalised; tiny blocks (page numbers, bullets) dropped. A Form D XML is read
+    field by field, each value with its label."""
+    if Path(str(pdf)).suffix.lower() == ".xml":
+        paras = _load_form_d_paragraphs(str(pdf))
+        if paras is not None:
+            return paras
     if is_html(pdf):
         return _load_html_paragraphs(str(pdf))
     paras: list[Para] = []
