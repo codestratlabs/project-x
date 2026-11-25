@@ -184,9 +184,12 @@ for r in sorted(NP, key=lambda x: (x["report_date"], x["fund_house"], x["series"
         n_xml += 1
         uw, vw, pw, lw = f"{exact(hit['balance'])} ({hit['units']})", f"${exact(hit['val'], True)}", hit["pct"], hit["lvl"]
         match = "Yes: units and value equal the filing's N-PORT XML; the as-filed columns show the XML's own numbers"
-    else:
-        uw, vw, pw, lw = f"{exact(str(u))} ({r['unit']})" if u else "", f"${exact(r['value_usd'], True)}" if r["value_usd"] else "", r["pct_net_assets"], r["fair_value_level"]
-        match = "Yes: same as the team N-PORT database (the filing's XML is not on disk; checked on EDGAR 24 Nov 2026)"
+    elif nport_xml(r["accession"]):                    # the filing is on disk and none of its holdings has these units and value
+        uw, vw, pw, lw = "", "", "", ""
+        match = "No: the filing's N-PORT XML has no holding with these units and value"
+    else:                                                # nothing to compare with: say so, never claim a check
+        uw, vw, pw, lw = "", "", "", ""
+        match = "Not checked: the filing's N-PORT XML is not on disk; the pipeline values come from the team N-PORT database"
     house = r["fund_house"] if r["fund_house"] and r["fund_house"] != "(unmapped)" else r["registrant"]
     npr.append(dict(rd=r["report_date"], house=house, fund=r["series"] or r["registrant"], sec=f"{r['title']} ({r['asset_cat']}, {r['unit']})",
                     units=exact(str(u)) if u else "", units_w=uw, val=exact(r["value_usd"], True) if r["value_usd"] else "", val_w=vw,
@@ -242,7 +245,10 @@ def readable(r: dict) -> str:
     'name = value', the value exactly as the filing gives it (iXBRL: with the tag's scale and sign applied)."""
     x = r["raw"]
     if r["method"] == "iXBRL tag" and x.lstrip().startswith("{"):
-        d = json.loads(x)
+        try:
+            d = json.loads(x)
+        except ValueError:                             # the scan keeps 300 characters of the tags: show them as text
+            return "iXBRL tags (scale and sign applied): " + tidy(x)
         return "iXBRL tags (scale and sign applied): " + " | ".join(f"{k} = {v:,.10g}" if isinstance(v, (int, float)) else f"{k} = {v}" for k, v in d.items())
     if r["method"] == "N-CEN XML":
         fields = re.findall(r"<(\w+)((?:\s+\w+=\"[^\"]*\")*)\s*(?:/>|>([^<]*)</\1>)", x)
@@ -261,6 +267,7 @@ _acc_of_holding = {x: E[h["evidence_id"]]["accession"] for h in H for x in (h.ge
 same_filing_ids = {x for x in repeat_ids if x in E and E[x]["accession"] == _acc_of_holding[x]}
 failed = {x["evidence_id"]: x["fail"] for x in rd(ev / "validation_fail.csv")}
 conflict_ids = {x["evidence_id"] for x in rd(ev / "holdings_conflicts.csv")}
+subtotal = {x["evidence_id"]: x.get("why", "") for x in rd(ev / "holdings_subtotals.csv")}   # left out of Holdings by evidence_holdings
 WHY = lambda r: ("Verified: in Holdings" if r["evidence_id"] in held_ids else   # noqa: E731
                  "Verified: same position as one in Holdings, printed a second time in the same filing (e.g. its restricted-securities note)" if r["evidence_id"] in same_filing_ids else
                  "Verified: same row as one in Holdings, printed again in another filing" if r["evidence_id"] in repeat_ids else
@@ -269,8 +276,9 @@ WHY = lambda r: ("Verified: in Holdings" if r["evidence_id"] in held_ids else   
                  "Not a position: " + re.sub(r"^not a position:\s*", "", r["why"] or r.get("problem", "")) if r["tier"] == "not a position" else
                  "Held back: failed a check (" + failed[r["evidence_id"]] + ")" if r["evidence_id"] in failed else
                  "Held back: another filing gives this position a different number" if r["evidence_id"] in conflict_ids else
+                 "Not a position: " + (subtotal[r["evidence_id"]] or "issuer subtotal") if r["evidence_id"] in subtotal else
                  "Not a position: no amount in the row" if not any(r.get(k) for k in ("qty", "cost", "value", "commitment")) else
-                 "Verified: same row as one in Holdings, printed again in another filing")
+                 "Not in Holdings: no rule placed this row (check by eye)")
 allr = []
 for r in E.values():
     l_ = LOCALL.get(r["evidence_id"], {})

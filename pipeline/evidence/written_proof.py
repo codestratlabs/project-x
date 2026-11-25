@@ -458,7 +458,7 @@ def main():
         res[i] = {"evidence_id": h["evidence_id"], **prove(f, h, e, co)}
         if n % 300 == 0:
             print("proved", n, "of", len(H), flush=True)
-    cols = list(res[0].keys())
+    cols = list(res[0].keys()) if res else ["evidence_id", "match"]     # a company with no holdings: an empty proof file
     w = csv.DictWriter(open(ev / "written_proof.csv", "w", newline="", encoding="utf-8"), cols)
     w.writeheader(); w.writerows(res)
     import collections

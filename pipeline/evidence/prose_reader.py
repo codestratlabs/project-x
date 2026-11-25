@@ -16,12 +16,16 @@ from __future__ import annotations
 import bisect
 import html
 import re
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import sentences as S  # noqa: E402  sentence ends that know abbreviations (Mr., Inc., initials)
 
 BLOCK = re.compile(r"</?(?:p|div|li|ul|ol|td|th|tr|table|h[1-6]|blockquote|center|section|article|body|html|title|dt|dd|pre|hr)\b[^>]*>|<br\s*/?>\s*(?:&nbsp;|\s)*<br\s*/?>", re.I)
 HIDDEN = re.compile(r"<ix:header\b.*?</ix:header>|<head\b.*?</head>|<script\b.*?</script>|<style\b.*?</style>|<!--.*?-->|<xbrli?:[a-z]+\b[^>]*>.*?</xbrli?:[a-z]+>", re.I | re.S)
 VOID = {"br", "img", "hr", "input", "meta", "link", "col", "area", "base", "wbr", "source", "embed"}
 NONE = re.compile(r"<([a-z][a-z0-9:]*)\b[^>]*\bstyle\s*=\s*[\"'][^\"']*display\s*:\s*none[^\"']*[\"'][^>]*>", re.I)
-SENT_END = re.compile(r"(?<=[.!?;•●])[\"”’)]?\s+(?=[A-Z“\"(•●\d])")
 WORD = re.compile(r"[A-Za-z][A-Za-z’'-]*")
 
 
@@ -91,12 +95,14 @@ class Doc:
             return {"kind": "hidden", "sentence": "", "block": ""}
         before, after = self.block(pos)
         name = clean(self.t[pos:end])
-        left = SENT_END.split(before)[-1]
-        right = SENT_END.split(after[len(name):], maxsplit=1)[0] if after.startswith(name) else SENT_END.split(after, maxsplit=1)[0]
-        sent = (left + (name if after.startswith(name) else "") + right).strip()
-        blk = (before + after).strip()
+        full, i = before + after, len(before)                  # the whole block, so a sentence end right before the name is seen
+        sent = S.sentence_at(full, i, i + (len(name) if after.startswith(name) else 0))
         kind = "sentence" if is_sentence(sent) else "table cell" if self.in_cell(pos) else "heading or label"
-        return {"kind": kind, "sentence": sent[:1500], "block": blk[:4000]}
+        if len(full) > 4000:                                    # a very long block: the 4,000 characters around the name
+            blk = ("…" if i > 2000 else "") + full[max(0, i - 2000):i + 2000] + ("…" if i + 2000 < len(full) else "")
+        else:
+            blk = full
+        return {"kind": kind, "sentence": sent[:1500], "block": blk.strip()}
 
 
 def is_sentence(s: str) -> bool:
@@ -139,11 +145,14 @@ def main() -> None:
     key = re.compile(cfg["company"]["name_regex"], re.I)
     ev = px.OUT / co / "evidence"
     src, raw = ev / "prose_sentences.csv", ev / "prose_sentences_raw.csv"
-    rows = list(csv.DictReader(open(src, encoding="utf-8")))
-    if rows and "kind" in rows[0]:                      # already rewritten: read the scan's text again
-        rows = list(csv.DictReader(open(raw, encoding="utf-8")))
+    rd = csv.DictReader(open(src, encoding="utf-8"))
+    rows, fields = list(rd), list(rd.fieldnames or [])
+    if "kind" in fields:                                # already rewritten: read the scan's text again
+        rd = csv.DictReader(open(raw, encoding="utf-8"))
+        rows, fields = list(rd), list(rd.fieldnames or [])
     else:
         shutil.copy(src, raw)
+    fields = [f for f in fields if f not in ("kind", "block")] + ["kind", "block"]
     paths = {r["sec_url"]: px.DUMPS / m.name.replace("_manifest.csv", "") / r["file"] for m in px.DUMPS.glob(f"{co}*_manifest.csv")
              for r in csv.DictReader(open(m, encoding="utf-8"))}
     out, cur, doc = [], None, None
@@ -167,7 +176,7 @@ def main() -> None:
         x = doc.mention(pos, m.end())
         n[x["kind"]] += 1
         out.append({**r, "sentence": x["sentence"], "kind": x["kind"], "block": x["block"]})
-    w = csv.DictWriter(open(src, "w", newline="", encoding="utf-8"), list(rows[0].keys()) + ["kind", "block"])
+    w = csv.DictWriter(open(src, "w", newline="", encoding="utf-8"), fields)
     w.writeheader()
     w.writerows(out)
     print("prose rows by kind:", dict(n))

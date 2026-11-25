@@ -449,7 +449,7 @@ def sentence(t: str, m) -> str:
     return (left + " " + right).strip()[:1500]
 
 
-CACHE_V = "px4-parvalue"     # cache version key (a stored value, not a module name): bump when a reader changes, so cached rows of older code are not reused
+CACHE_V = "px5-notes-date"     # cache version key (a stored value, not a module name): bump when a reader changes, so cached rows of older code are not reused
 RECOVER = ("no column header found", "amount cells at the end of the row but", "no number under a known column")
 
 
@@ -498,7 +498,28 @@ def norm_any(d: str) -> str:
     return L2.norm_date(d) or (L2.num_date(n) if n else "")
 
 
-def check_date(d: str, src: str, sch: str, ctx2: dict, pos: int, filed: str, per: str = "") -> tuple:
+def in_notes(ctx2: dict, pos: int) -> bool:
+    """Is pos after a 'Notes to (the) Financial Statements' heading that follows the last schedule heading above it?"""
+    if "notes_at" not in ctx2:
+        t = ctx2["t"]
+        ctx2["notes_at"] = [m.start() for m in L2.END_RAW.finditer(t) if re.search(r"notes", m[0], re.I) and m[0][0].isupper()
+                            and L2.AT_START.search(t[max(0, m.start() - 80):m.start()])]
+    heads = [p for p, *_ in L2.heads_of(ctx2) if p < pos]
+    last = max(heads) if heads else -1
+    return any(last < p < pos for p in ctx2["notes_at"])
+
+
+def after_date(row_date: str, period: str) -> bool:
+    """Is the row's own printed date (purchase, acquisition) later than the period date?"""
+    import datetime as dt
+    a, b = norm_any(row_date or ""), norm_any(period or "")
+    try:
+        return bool(a and b) and dt.datetime.strptime(a, "%B %d, %Y") > dt.datetime.strptime(b, "%B %d, %Y")
+    except ValueError:
+        return False
+
+
+def check_date(d: str, src: str, sch: str, ctx2: dict, pos: int, filed: str, per: str = "", row_date: str = "") -> tuple:
     """Two readings of a row's date must agree. The first is as_of(): the nearest dated heading above the row. The second is the second reader's: the
     schedule heading whose schedule has not ended at the row (a statement or notes heading ends it), else a dated notes heading. A disagreement,
     a schedule that has ended, or a date after the filing gives no date (the row goes to review), never a guess. When only the second reader finds
@@ -523,7 +544,9 @@ def check_date(d: str, src: str, sch: str, ctx2: dict, pos: int, filed: str, per
         if second in (None, first):
             return d, src, sch
         if second == "ended":
-            if per and norm_any(per) == first:      # N-CSR/N-CSRS: one date for every holdings table of the report, printed on its cover
+            if per and norm_any(per) == first and not in_notes(ctx2, pos) and not after_date(row_date, first):
+                # N-CSR/N-CSRS: one date for every holdings table of the report, printed on its cover. Never for a table in the
+                # notes (subsequent events, commitments made later) or a row whose own printed date is after the period.
                 return d, "reporting period on the cover of the N-CSR; the heading above has the same date", sch
             return "", f"no date found: the schedule dated {d} ends before this table", sch
         return "", f"no date found: two date readings differ ({d} vs {second})", sch
@@ -586,7 +609,7 @@ def scan(job: tuple) -> dict:
                     seen.add(k)
                     if not x.get("as_of"):
                         d, src, sch = as_of(anch, per, m.start())
-                        x["as_of"], x["as_of_source"], x["schedule"] = check_date(d, src, sch, ctx2, m.start(), filed, per)
+                        x["as_of"], x["as_of_source"], x["schedule"] = check_date(d, src, sch, ctx2, m.start(), filed, per, x.get("date", ""))
                     res["rows"].append(x)
     except Exception as e:
         res["error"] = f"{type(e).__name__}: {e}"[:160]
