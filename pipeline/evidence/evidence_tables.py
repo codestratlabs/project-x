@@ -210,7 +210,7 @@ def from_table(t: str, m, key: str, last: list):
         h, src = last[0], "earlier table"
     if h and src == "same table":
         last[:] = [h]
-    if not h and not any(NUMBER.match(c[2]) and float(NUMBER.match(c[2])[1].replace(",", "")) >= 100 for c in g):
+    if not h and not any(amount_cell(c[2]) for c in g):     # no header and no amount (a year such as "2020" is not one)
         return dict(problem="not a position: no amount in the row", name=g[0][2][:120], raw=" | ".join(c[2] for c in g)[:1500], table=a, row=row, header="", unit="", unit_factor=None, method="table", qty=None, cost=None, value=None, date="")
     if not h:
         return dict(problem="no column header found", name=g[0][2][:120], raw=" | ".join(c[2] for c in g)[:1500], table=a, row=row, header="", unit="", unit_factor=None, method="table", qty=None, cost=None, value=None, date="")
@@ -321,6 +321,16 @@ def from_table(t: str, m, key: str, last: list):
     if r["qty"] is None and r["cost"] is None and r["value"] is None and r["commitment"] is None:
         r["problem"] = "no number under a known column" if any(NUMBER.match(c[2]) and float(NUMBER.match(c[2])[1].replace(",", "")) >= 100 for c in g) else "not a position: no amount in the row"
     return r
+
+
+YEAR = re.compile(r"(?:19|20)\d{2}")
+
+
+def amount_cell(x: str) -> bool:
+    """A cell that can be an amount: a number of 100 or more. A bare year (1900-2099 with no comma, $ or decimals, e.g.
+    'Director since 2020' in a board table) is not; '2,020' or '$2020' still is."""
+    m = NUMBER.match(x)
+    return bool(m) and float(m[1].replace(",", "")) >= 100 and not YEAR.fullmatch(x.strip())
 
 
 WORD = re.compile(r"[A-Za-z][A-Za-z’'-]*")
@@ -470,7 +480,7 @@ def sentence(t: str, m) -> str:
     return (left + " " + right).strip()[:1500]
 
 
-CACHE_V = "px6-prose-cells"     # cache version key (a stored value, not a module name): bump when a reader changes, so cached rows of older code are not reused
+CACHE_V = "px7-year-not-amount"     # cache version key (a stored value, not a module name): bump when a reader changes, so cached rows of older code are not reused
 RECOVER = ("no column header found", "amount cells at the end of the row but", "no number under a known column")
 
 
