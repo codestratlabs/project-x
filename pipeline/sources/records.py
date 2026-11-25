@@ -83,8 +83,9 @@ def form5500(emp: Path, cfg: dict, out: Path) -> dict:
     for r in f:
         k = (r["FORM_PLAN_YEAR_BEGIN_DATE"][:4], r["SPONS_DFE_PN"])
         latest[k] = r if k not in latest or r["ACK_ID"] > latest[k]["ACK_ID"] else latest[k]
-    n1 = write(out, "dol_form5500.csv", ["FORM_PLAN_YEAR_BEGIN_DATE", "SPONS_DFE_PN", "TOT_ACT_PARTCP_BOY_CNT", "TOT_ACTIVE_PARTCP_CNT"],
-               [[r["FORM_PLAN_YEAR_BEGIN_DATE"], r["SPONS_DFE_PN"], r["TOT_ACT_PARTCP_BOY_CNT"], r["TOT_ACTIVE_PARTCP_CNT"]] for k, r in sorted(latest.items())])
+    n1 = write(out, "dol_form5500.csv", ["FORM_PLAN_YEAR_BEGIN_DATE", "SPONS_DFE_PN", "TOT_ACT_PARTCP_BOY_CNT", "TOT_ACTIVE_PARTCP_CNT", "PLAN_NAME", "ACK_ID"],
+               [[r["FORM_PLAN_YEAR_BEGIN_DATE"], r["SPONS_DFE_PN"], r["TOT_ACT_PARTCP_BOY_CNT"], r["TOT_ACTIVE_PARTCP_CNT"], r.get("PLAN_NAME", ""), r.get("ACK_ID", "")]
+                for k, r in sorted(latest.items())])
     # the 401(k) plan only (config k401_plan; a company's other plans, e.g. 501 health and welfare, are not its 401(k)), one row per plan
     # year: the full Form 5500 when the plan filed one, else the short form 5500-SF that small plans file; the latest filing of the year
     pp = {}

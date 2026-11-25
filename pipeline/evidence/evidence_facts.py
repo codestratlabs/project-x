@@ -141,6 +141,8 @@ def metric_of(s: str, a: int, b: int) -> list:
 facts, review = [], []
 seen = set()
 for r in csv.DictReader(open(ev / "prose_sentences.csv", encoding="utf-8")):
+    if r.get("kind", "sentence") not in ("sentence", "pdf line"):
+        continue                                                  # hidden XBRL data, a table cell or a label: not a sentence
     s = re.sub(r'^[^<>]{0,80}?"\s*>\s*', "", r["sentence"])      # a sentence cut inside an HTML tag
     if not NAME.search(s):
         continue

@@ -27,10 +27,10 @@ csv.field_size_limit(10**8)
 HERE = Path(__file__).parent
 MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
 MONTH = r"(?:January|February|March|April|May|June|July|August|September|October|November|December)"
-COL = [("commitment", r"unfunded|commitment|undrawn"), ("price", r"\bper\s+(?:share|unit)\b"), ("value", r"\b(fair|market)?\s*values?\b"), ("cost", r"\bcost\b"), ("qty", r"\bshares\b|\bprincipal\b|\bpar\b|\bunits\b|\bquantity\b|\bface\b|\bnumber of\b"), ("date", r"\bdate\b|\bacquired\b"), ("pct", r"%|percent")]
+COL = [("commitment", r"unfunded|commitment|undrawn"), ("price", r"\bper\s+(?:share|unit)\b"), ("qty", r"\bpar\s+values?\b|\bprincipal\s+amount\b"), ("value", r"\b(fair|market)?\s*values?\b"), ("cost", r"\bcost\b"), ("qty", r"\bshares\b|\bprincipal\b|\bpar\b|\bunits\b|\bquantity\b|\bface\b|\bnumber of\b"), ("date", r"\bdate\b|\bacquired\b"), ("pct", r"%|percent")]
 HEAD_UNIT = re.compile(r"\(?\$?\s*000[’'`]?s?\)?|thousands|millions|\$\s?m\b", re.I)
 PAGE_UNIT = re.compile(r"(?:\bin\s|\$\s|expressed in\s|amounts?\s|value\s|cost\s)[^.<]{0,40}?(thousands|millions|\$\s?000[’'`]?s?)\b", re.I)
-CACHE_V = "layout-v7"     # bump when a reader changes, so cached rows of older code are not reused
+CACHE_V = "layout-v8"     # bump when a reader changes, so cached rows of older code are not reused
 NUMBER = re.compile(r"^[-−–]?\s*\(?\$?\s*\(?\s*(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*\)?\s*[*†‡#]*\s*(?:\([a-z0-9]{1,3}\)\s*,?\s*)*[a-z]{0,1}$")   # evidence_tables.py's: signs read
 SHARES_TXT = re.compile(r"(?<![\d,.$])(\d{1,3}(?:,\d{3})+|\d{3,})\s+(?:[A-Za-z][\w.-]*\s+){0,5}?shares?\b", re.I)
 

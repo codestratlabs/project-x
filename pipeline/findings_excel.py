@@ -10,6 +10,7 @@ from __future__ import annotations
 import bisect
 import csv
 import html
+import json
 import re
 import sys
 import urllib.parse
@@ -105,41 +106,96 @@ def sheet(wb, title, cols, rows, side=()):
 fmt = lambda v: f"{float(v):,.0f}" if v not in ("", None) else ""   # noqa: E731
 wb = Workbook()
 
-# Holdings (filings)
+# Holdings (filings): each number, the scale and the date as written in the filing, read again from the filing by
+# evidence/written_proof.py; Match is computed there from those printed values, never assumed
+WP = {r["evidence_id"]: r for r in rd(ev / "written_proof.csv")}
+missing = [h["evidence_id"] for h in H if h["evidence_id"] not in WP]
+if missing:
+    sys.exit(f"written_proof.csv has no row for {len(missing)} holdings: run evidence/written_proof.py {co} first")
 hold = []
 for h in H:
-    e = E.get(h["evidence_id"], {})
     l_ = LOC.get(h["evidence_id"], {})
-    raw = e.get("raw", "")
-    pairs = [(e.get("qty"), h["shares"] or h["par"]), (e.get("cost"), h["cost_usd"]), (e.get("value"), h["fair_value_usd"]), (e.get("commitment"), h["commitment_usd"])]
-    asw = [printed(raw + " | " + e.get("name", ""), p) if p else "" for p, _ in pairs]
-    ok = all((a != "") for (p, _), a in zip(pairs, asw) if p) or e.get("method") in ("iXBRL tag", "N-CEN XML")
-    hold.append(dict(holder=h["holder"], vehicle=h["vehicle"] if h["position_type"] == "spv_interest" else "direct", ptype=h["position_type"].replace("_", " "),
-                     security=h["security"], sh=fmt(h["shares"] or h["par"]), sh_w=asw[0], cost=fmt(h["cost_usd"]), cost_w=asw[1], fv=fmt(h["fair_value_usd"]), fv_w=asw[2],
-                     cm=fmt(h["commitment_usd"]), cm_w=asw[3], unit=h["unit"], asof=h["as_of_date"], asof_w=(e.get("schedule") or e.get("as_of_source") or "")[:80],
-                     match="Yes: every number is the same as in the filing row" if ok else "No: a number is not written in the row",
-                     proof={"A N-PORT": "also equal to the fund's Form N-PORT filing", "A tag": "iXBRL tag", "A XML": "N-CEN XML"}.get(h["tier"], "printed table"),
-                     ground=raw, form=h["form"], filer=re.sub(r"\s*\(CIK \d+\)", "", h["filer"]), filed=h["filing_date"], page=l_.get("page", ""),
-                     search=l_.get("search_text", ""), link=link(h["sec_url"], l_.get("search_text", ""), cell_prefix(raw, l_.get("prefix", ""), l_.get("search_text", "")))))
-HC = [("#", "#", 5), ("holder", "Holder", 26), ("vehicle", "Vehicle", 16), ("ptype", "Type", 12), ("security", "Security", 10),
+    w_ = WP[h["evidence_id"]]
+    hold.append(dict(holder=h["holder"], hsrc=h.get("holder_source", ""), vehicle=h["vehicle"] if h["position_type"] == "spv_interest" else "direct", ptype=h["position_type"].replace("_", " "),
+                     security=h["security"], sh=fmt(h["shares"] or h["par"]), sh_w=w_["qty_w"], cost=fmt(h["cost_usd"]), cost_w=w_["cost_w"], fv=fmt(h["fair_value_usd"]), fv_w=w_["value_w"],
+                     cm=fmt(h["commitment_usd"]), cm_w=w_["commitment_w"], unit=w_["unit_w"], scale_chk=w_.get("scale_check", ""), asof=h["as_of_date"], asof_src=w_["asof_src"], asof_w=w_["asof_w"],
+                     match=w_["match"], proof={"A N-PORT": "also equal to the fund's Form N-PORT filing", "A tag": "iXBRL tag", "A XML": "N-CEN XML"}.get(h["tier"], "printed table"),
+                     ground=w_["ground"], form=h["form"], filer=re.sub(r"\s*\(CIK \d+\)", "", h["filer"]), filed=h["filing_date"], page=l_.get("page", ""),
+                     search=l_.get("search_text", ""), link=link(h["sec_url"], l_.get("search_text", ""), cell_prefix(w_["ground"], l_.get("prefix", ""), l_.get("search_text", "")))))
+HC = [("#", "#", 5), ("holder", "Holder", 26), ("hsrc", "How the holder is named", 22), ("vehicle", "Vehicle", 16), ("ptype", "Type", 12), ("security", "Security", 10),
       ("sh", "Shares / principal (pipeline)", 13), ("sh_w", "Shares / principal as written in the filing", 15), ("cost", "Cost $ (pipeline)", 14), ("cost_w", "Cost as written in the filing", 14),
       ("fv", "Fair value $ (pipeline)", 14), ("fv_w", "Fair value as written in the filing", 14), ("cm", "Undrawn commitment $ (pipeline)", 13), ("cm_w", "Commitment as written", 12),
-      ("unit", "Unit as printed (scale applied)", 22), ("asof", "As of (pipeline)", 11), ("asof_w", "As of as written (table heading)", 22), ("match", "Match", 24), ("proof", "Second source", 20),
+      ("unit", "Scale as written in the filing", 22), ("scale_chk", "Scale check: value per share vs N-PORT price", 26), ("asof", "As of (pipeline)", 11), ("asof_src", "Where the date is written", 16), ("asof_w", "Date as written in the filing", 34),
+      ("match", "Match", 30), ("proof", "Second source", 20), ("ground", "Row as printed in the filing", 60),
       ("form", "Form", 8), ("filer", "Filed by", 24), ("filed", "Filing date", 11),
       ("page", "Page (printed in the filing)", 9), ("search", "Search text", 12), ("link", "Source (opens at the text)", 10)]
 side = {"sh": "p", "sh_w": "g", "cost": "p", "cost_w": "g", "fv": "p", "fv_w": "g", "cm": "p", "cm_w": "g", "asof": "p", "asof_w": "g"}
 sheet(wb, "Holdings (filings)", HC, hold, side)
 
-# N-PORT holdings (structured records)
+# N-PORT holdings (structured records). "As filed" is read from the filing's own N-PORT XML (dumps/<co>_nport/xml/<accession>.xml.gz):
+# the <invstOrSec> whose balance and valUSD equal the record, its numbers exactly as the XML writes them.
+import gzip as _gz
+_XML = {}
+
+
+def nport_xml(acc: str) -> list:
+    if acc not in _XML:
+        _XML.clear()
+        f = px.DUMPS / f"{co}_nport" / "xml" / f"{acc}.xml.gz"
+        out = []
+        if f.exists():
+            x = _gz.decompress(f.read_bytes()).decode("utf-8", errors="ignore")
+            for b in re.findall(r"<(?:\w+:)?invstOrSec>(.*?)</(?:\w+:)?invstOrSec>", x, re.S):
+                g = lambda tag: (re.search(rf"<(?:\w+:)?{tag}>([^<]*)</", b) or [None, ""])[1].strip()   # noqa: E731
+                out.append(dict(balance=g("balance"), units=g("units"), val=g("valUSD"), pct=g("pctVal"), lvl=(re.search(r'fairValLevel="?([^"<> ]+)', b) or re.search(r"<(?:\w+:)?fairValLevel>([^<]*)<", b) or [None, ""])[1]))
+        _XML[acc] = out
+    return _XML[acc]
+
+
+def num_or_none(s):
+    """A number written in the XML or the record; None for "N/A" or nothing."""
+    try:
+        return float(s)
+    except (TypeError, ValueError):
+        return None
+
+
+def exact(s: str, money: bool = False) -> str:
+    """A number as the source writes it, with thousands commas added and no rounding (money keeps at least 2 decimals)."""
+    if s in (None, ""):
+        return ""
+    if num_or_none(s) is None:
+        return s                                   # "N/A" stays as written
+    neg, s = s.startswith("-"), s.lstrip("-")
+    a, _, b = s.partition(".")
+    b = b.rstrip("0")
+    if money:
+        b = (b + "00")[:max(2, len(b))]
+    return ("-" if neg else "") + f"{int(a or 0):,}" + (f".{b}" if b else "")
+
+
 npr = []
+n_xml = 0
 for r in sorted(NP, key=lambda x: (x["report_date"], x["fund_house"], x["series"])):
     u = r["shares"] or r["par_or_units"]
-    npr.append(dict(rd=r["report_date"], house=r["fund_house"], fund=r["series"] or r["registrant"], sec=f"{r['title']} ({r['asset_cat']}, {r['unit']})",
-                    units=fmt(u), units_w=f"{float(u):,.0f} ({r['unit']})" if u else "", val=fmt(r["value_usd"]), val_w=f"${float(r['value_usd']):,.2f}" if r["value_usd"] else "",
-                    pct=r["pct_net_assets"], lvl=r["fair_value_level"], ground=f"Filing: Form {r['form']} {r['accession']}",
-                    match="Yes: same units and value (structured record)", link=r["sec_url"]))
-NC = [("#", "#", 5), ("rd", "Report date", 11), ("house", "Fund house", 16), ("fund", "Fund", 28), ("sec", "Security as filed", 30), ("units", "Units (pipeline)", 12),
-      ("units_w", "Units as filed", 16), ("val", "Value $ (pipeline)", 14), ("val_w", "Value as filed", 16), ("pct", "% of fund", 8), ("lvl", "Fair-value level", 8),
+    hit = next((x for x in nport_xml(r["accession"]) if num_or_none(x["balance"]) is not None and num_or_none(x["val"]) is not None
+                and abs(num_or_none(x["balance"]) - (num_or_none(u) or 0)) < 1e-6 and abs(num_or_none(x["val"]) - (num_or_none(r["value_usd"]) or 0)) < 0.005), None)
+    if hit:
+        n_xml += 1
+        uw, vw, pw, lw = f"{exact(hit['balance'])} ({hit['units']})", f"${exact(hit['val'], True)}", hit["pct"], hit["lvl"]
+        match = "Yes: units and value equal the filing's N-PORT XML; the as-filed columns show the XML's own numbers"
+    elif nport_xml(r["accession"]):                    # the filing is on disk and none of its holdings has these units and value
+        uw, vw, pw, lw = "", "", "", ""
+        match = "No: the filing's N-PORT XML has no holding with these units and value"
+    else:                                                # nothing to compare with: say so, never claim a check
+        uw, vw, pw, lw = "", "", "", ""
+        match = "Not checked: the filing's N-PORT XML is not on disk; the pipeline values come from the team N-PORT database"
+    house = r["fund_house"] if r["fund_house"] and r["fund_house"] != "(unmapped)" else r["registrant"]
+    npr.append(dict(rd=r["report_date"], house=house, fund=r["series"] or r["registrant"], sec=f"{r['title']} ({r['asset_cat']}, {r['unit']})",
+                    units=exact(str(u)) if u else "", units_w=uw, val=exact(r["value_usd"], True) if r["value_usd"] else "", val_w=vw,
+                    pct=pw, lvl=lw, ground=f"Filing: Form {r['form']} {r['accession']}", match=match, link=r["sec_url"]))
+NC = [("#", "#", 5), ("rd", "Report date", 11), ("house", "Fund house (team database label, not in the filing)", 16), ("fund", "Fund", 28), ("sec", "Security as filed", 30), ("units", "Units (pipeline)", 12),
+      ("units_w", "Units as filed", 16), ("val", "Value $ (pipeline)", 14), ("val_w", "Value as filed", 16), ("pct", "% of fund (as filed)", 8), ("lvl", "Fair-value level (as filed)", 8),
       ("match", "Match", 26), ("link", "EDGAR filing", 10)]
 sheet(wb, "N-PORT holdings", NC, npr, {"units": "p", "units_w": "g", "val": "p", "val_w": "g"})
 
@@ -151,7 +207,7 @@ for r in FD:
     fdr.append(dict(filed=r["filing_date"], form=r["submission_type"], acc=acc, first=r["sale_date"], first_w=f"{r['sale_date']} (SALE_DATE)",
                     off=fmt(r["total_offering_amount"]), off_w=f"{fmt(r['total_offering_amount'])} (TOTALOFFERINGAMOUNT)" if r["total_offering_amount"] else "",
                     sold=fmt(r["total_amount_sold"]), sold_w=f"{fmt(r['total_amount_sold'])} (TOTALAMOUNTSOLD)" if r["total_amount_sold"] else "",
-                    inv=r["total_investors"], inv_w=f"{r['total_investors']} (TOTALNUMBERALREADYINVESTED)" if r["total_investors"] else "",
+                    inv=exact(r["total_investors"]), inv_w=f"{exact(r['total_investors'])} (TOTALNUMBERALREADYINVESTED)" if r["total_investors"] else "",
                     match="Yes: every value is the same as in the Form D record", ground=f"SEC Form D data set, accession {acc}",
                     link=f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc.replace('-', '')}/"))
 DC = [("#", "#", 5), ("filed", "Filed", 11), ("form", "Form", 7), ("acc", "Accession", 22), ("first", "First sale (pipeline)", 12), ("first_w", "First sale as filed", 24),
@@ -174,102 +230,85 @@ sheet(wb, "DOL 401(k)", OC, dol, {"boy": "p", "boy_w": "g", "act": "p", "act_w":
 
 # All evidence: every mention of the company the scan found, and what happened to it
 LOCALL = LOC
+
+
+def tidy(x: str) -> str:
+    """Text as a reader sees it: a tag cut at either end of a fixed-length piece is removed, never shown."""
+    x = re.sub(r'^[^<>]*?"\s*/?>\s*', "", x) if re.match(r'^[^<>]*?"\s*/?>', x) else x
+    lt = x.rfind("<")
+    if lt >= 0 and x.rfind(">") < lt:
+        x = x[:lt]
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]*>", " ", x)).strip()
+
+def readable(r: dict) -> str:
+    """The evidence as filed, without markup: a table row or sentence as printed; iXBRL tags and N-CEN XML fields as
+    'name = value', the value exactly as the filing gives it (iXBRL: with the tag's scale and sign applied)."""
+    x = r["raw"]
+    if r["method"] == "iXBRL tag" and x.lstrip().startswith("{"):
+        try:
+            d = json.loads(x)
+        except ValueError:                             # the scan keeps 300 characters of the tags: show them as text
+            return "iXBRL tags (scale and sign applied): " + tidy(x)
+        return "iXBRL tags (scale and sign applied): " + " | ".join(f"{k} = {v:,.10g}" if isinstance(v, (int, float)) else f"{k} = {v}" for k, v in d.items())
+    if r["method"] == "N-CEN XML":
+        fields = re.findall(r"<(\w+)((?:\s+\w+=\"[^\"]*\")*)\s*(?:/>|>([^<]*)</\1>)", x)
+        out = []
+        for name, attrs, val in fields:
+            if val.strip():
+                out.append(f"{name} = {val.strip()}")
+            out += [f"{name} {a} = {b}" for a, b in re.findall(r'(\w+)="([^"]*)"', attrs)]
+        return "N-CEN XML fields: " + " | ".join(out)
+    return tidy(x)
+
+
 held_ids = {h["evidence_id"] for h in H}
 repeat_ids = {x for h in H for x in (h.get("other_evidence_ids") or "").split()}
+_acc_of_holding = {x: E[h["evidence_id"]]["accession"] for h in H for x in (h.get("other_evidence_ids") or "").split()}
+same_filing_ids = {x for x in repeat_ids if x in E and E[x]["accession"] == _acc_of_holding[x]}
 failed = {x["evidence_id"]: x["fail"] for x in rd(ev / "validation_fail.csv")}
 conflict_ids = {x["evidence_id"] for x in rd(ev / "holdings_conflicts.csv")}
+subtotal = {x["evidence_id"]: x.get("why", "") for x in rd(ev / "holdings_subtotals.csv")}   # left out of Holdings by evidence_holdings
 WHY = lambda r: ("Verified: in Holdings" if r["evidence_id"] in held_ids else   # noqa: E731
+                 "Verified: same position as one in Holdings, printed a second time in the same filing (e.g. its restricted-securities note)" if r["evidence_id"] in same_filing_ids else
                  "Verified: same row as one in Holdings, printed again in another filing" if r["evidence_id"] in repeat_ids else
                  "Held back: " + r["why"] if r["tier"] == "C review" else
                  "Not the company: " + LOOKF[r["accession"]] if r["tier"] == "not a position" and r.get("accession") in LOOKF else
                  "Not a position: " + re.sub(r"^not a position:\s*", "", r["why"] or r.get("problem", "")) if r["tier"] == "not a position" else
                  "Held back: failed a check (" + failed[r["evidence_id"]] + ")" if r["evidence_id"] in failed else
                  "Held back: another filing gives this position a different number" if r["evidence_id"] in conflict_ids else
+                 "Not a position: " + (subtotal[r["evidence_id"]] or "issuer subtotal") if r["evidence_id"] in subtotal else
                  "Not a position: no amount in the row" if not any(r.get(k) for k in ("qty", "cost", "value", "commitment")) else
-                 "Verified: same row as one in Holdings, printed again in another filing")
+                 "Not in Holdings: no rule placed this row (check by eye)")
 allr = []
 for r in E.values():
     l_ = LOCALL.get(r["evidence_id"], {})
     allr.append(dict(kind={"table": "table row", "iXBRL tag": "iXBRL tag", "N-CEN XML": "N-CEN XML", "pdf line": "PDF line", "text layout": "text block"}.get(r["method"], r["method"]),
                      form=r["form"], filer=re.sub(r"\s*\(CIK \d+\)", "", r["filer"]), filed=r["file_date"], asof=r.get("report_date") or r["as_of"],
-                     text=r["raw"], status=WHY(r), page=l_.get("page", ""), link=link(r["url"], l_.get("search_text", ""), cell_prefix(r["raw"], l_.get("prefix", ""), l_.get("search_text", ""))), acc=r["accession"]))
-# The whole paragraph each sentence sits in, read from the filing on disk at the sentence's position: the HTML block
-# (<p>, <div>, <li>, table cell, heading) around it. The sentence column keeps only the sentence that names the company;
-# this column shows the sentences around it too (it / the company ... that refer back to it).
-BLOCK = re.compile(r"</?(?:p|div|li|td|th|tr|table|h[1-6]|blockquote|center)\b[^>]*>|<br\s*/?>\s*<br\s*/?>", re.I)
-PATHS = {r["sec_url"]: px.DUMPS / m.name.replace("_manifest.csv", "") / r["file"]
-         for m in px.DUMPS.glob(f"{co}*_manifest.csv") for r in rd(m)}
-_doc: dict = {}
-
-
-def paragraph(url: str, pos: str) -> tuple:
-    """(paragraph number in the filing, paragraph text) around character `pos` of the filing at `url`; ("", "") if not readable."""
-    if not str(pos).isdigit() or url not in PATHS or not PATHS[url].exists() or PATHS[url].suffix.lower() not in (".htm", ".html", ".txt"):
-        return "", ""
-    if url not in _doc:
-        _doc.clear()                                   # one filing at a time: rows are read in filing order
-        t = PATHS[url].read_text(encoding="utf-8", errors="ignore")
-        t = re.sub(r"</?(?:table|tr|td|th)\b", lambda x: x[0].lower(), t, flags=re.I)   # same text the scan used, so positions agree
-        hdr = [(h.start(), h.end()) for h in re.finditer(r"<ix:header>.*?</ix:header>", t, re.I | re.S)]
-        _doc[url] = (t, [b.start() for b in BLOCK.finditer(t)], [b.end() for b in BLOCK.finditer(t)], hdr)
-    t, starts, ends, hdr = _doc[url]
-    p = int(pos)
-    i = bisect.bisect_right(ends, p)                   # blocks whose tag ends at or before the sentence
-    if any(x <= p < y for x, y in hdr):
-        return i, "(hidden XBRL data, not a paragraph on a page)"
-    a = ends[i - 1] if i else 0
-    b = starts[bisect.bisect_left(starts, p)] if bisect.bisect_left(starts, p) < len(starts) else len(t)
-    clean = lambda s: re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", s)).replace("\xa0", " "))   # noqa: E731
-    before, after = clean(t[a:p]).lstrip(), clean(t[p:b]).rstrip()
-    if len(before) + len(after) > 4000:                # a very long block: keep the 4,000 characters around the name
-        before, after = "…" + before[-2000:], after[:2000] + "…"
-    return i, (before + after).strip()
-
-
+                     text=readable(r), status=WHY(r), page=l_.get("page", ""), link=link(r["url"], l_.get("search_text", ""), cell_prefix(r["raw"], l_.get("prefix", ""), l_.get("search_text", ""))), acc=r["accession"]))
+# Mentions outside tables, read again by the filing's structure (evidence/prose_reader.py): the sentence that names the
+# company with its whole block, or a name / heading / cell that is not a sentence. Mentions inside hidden XBRL data are
+# not on any page and are counted on the About sheet, not listed.
 prose = sorted(rd(ev / "prose_sentences.csv"), key=lambda r: (r["url"], int(r["pos"]) if r["pos"].isdigit() else 0))
+if prose and "kind" not in prose[0]:
+    sys.exit(f"prose_sentences.csv has no kind column: run evidence/prose_reader.py {co} first")
+KIND = {"sentence": ("sentence", "Sentence that names the company"), "pdf line": ("PDF text", "Text of a PDF filing that names the company"),
+        "heading or label": ("name or heading", "Names the company; not a sentence and no amount next to it"),
+        "table cell": ("table cell", "Names the company in a table cell with no amount"),
+        "pdf table line": ("PDF table line", "Held back: a line of a PDF table that names the company; its amounts are not read by rule, check by eye")}
+n_hidden = 0
 for p_ in prose:
-    snt = re.sub(r'^[^<>]{0,80}?"\s*>\s*', "", p_["sentence"])
+    if p_["kind"] == "hidden":
+        n_hidden += 1
+        continue
     l_ = LOCALL.get(f"S{p_['accession']}:{p_['pos']}", {})
-    pno, para = paragraph(p_["url"], p_["pos"])
-    allr.append(dict(kind="sentence", form=p_["form"], filer=re.sub(r"\s*\(CIK \d+\)", "", p_["filer"]), filed=p_["file_date"], asof=p_["near_heading_date"],
-                     text=snt[:1000], status=f"Not the company: {LOOKF[p_['accession']]}" if p_["accession"] in LOOKF else "Sentence that names the company", para=para, pno=pno,
+    kind, status = KIND[p_["kind"]]
+    allr.append(dict(kind=kind, form=p_["form"], filer=re.sub(r"\s*\(CIK \d+\)", "", p_["filer"]), filed=p_["file_date"], asof=p_["near_heading_date"],
+                     text=p_["sentence"][:1000], status=f"Not the company: {LOOKF[p_['accession']]}" if p_["accession"] in LOOKF else status, para=p_["block"][:4000] if p_["kind"] == "sentence" else "",
                      page=l_.get("page", ""), link=link(p_["url"], l_.get("search_text", "")), acc=p_["accession"]))
 allr.sort(key=lambda r: (r["filed"], r["acc"]))
 AC = [("#", "#", 6), ("kind", "Kind", 11), ("form", "Form", 8), ("filer", "Filed by", 28), ("filed", "Filing date", 11), ("asof", "As of", 11),
-      ("text", "Evidence (table row or sentence, as printed)", 80), ("para", "Whole paragraph (sentences only)", 90), ("pno", "Paragraph no.", 9), ("status", "What happened to it", 44), ("page", "Page", 9), ("link", "Source (opens at the text)", 10)]
+      ("text", "Evidence (table row or sentence, as printed)", 80), ("para", "Whole paragraph (sentences only)", 90), ("status", "What happened to it", 44), ("page", "Page", 9), ("link", "Source (opens at the text)", 10)]
 sheet(wb, "All evidence", AC, allr)
-
-# Indirect mentions: pronouns (it / its / they / the company ...) the model tied to the company, only where the
-# paragraph does not name the company itself (a paragraph that names it is already in All evidence from string match)
-IND = rd(px.OUT / co / "indirect_located.csv")
-
-
-def ind_row(r):
-    who = (name.split(",")[0] if r["company_id"].startswith("C") else f"the filer ({r['filer']})" if r["company_id"].startswith("F")
-           else "none (no company / not this one)")
-    url = r["url"] if r["url"].lower().endswith((".htm", ".html")) else f"{r['url']}#page={r['page']}"
-    return dict(form=r["form"], filer=r["filer"], filed=r["filed"], word=r["trigger"], text=r["sentence"][:1000], answer=who,
-                conf=int(r["confidence"]) if str(r["confidence"]).isdigit() else r["confidence"], reason=r["reason"],
-                page=r["page"], search=r["search_text"], link=link(url, r["search_text"]), acc=r["accession"])
-
-
-IC = [("#", "#", 6), ("form", "Form", 8), ("filer", "Filed by", 28), ("filed", "Filing date", 11), ("word", "Word", 12),
-      ("text", "Sentence, as printed", 80), ("answer", "Refers to (model)", 22), ("conf", "Confidence", 10), ("reason", "Model's reason", 44),
-      ("page", "Page", 9), ("search", "Search text (Ctrl+F)", 34), ("link", "Source (opens at the word)", 10)]
-seen, ind, ind_dup = set(), [], 0
-# rows whose paragraph does not name the company first: the same words on the same page can be two places, one in a
-# paragraph that names the company and one that does not; the second is new evidence and must not be dropped as a repeat
-IND.sort(key=lambda r: r.get("name_in_paragraph") == "yes")
-for r in IND:                                           # the same pronoun can be in two runs: keep one
-    k = (r["accession"], r["search_text"], r["page"])     # same words on the same page = the same place in the filing
-    if r["company_id"].startswith("C") and r["status"] == "resolved" and k not in seen:
-        seen.add(k)
-        if r.get("name_in_paragraph") == "yes":            # the paragraph is already an All evidence row: not repeated here
-            ind_dup += 1
-            continue
-        ind.append(ind_row(r))
-ind.sort(key=lambda r: (r["filed"], r["acc"]))
-sheet(wb, "Indirect mentions", IC, ind)
 
 # About
 s = wb.active
@@ -277,9 +316,8 @@ s.title = "About"
 s.sheet_view.showGridLines = False
 s["A1"] = f"{name}: findings and their ground truth"
 s["A1"].font = Font(name=FONT, size=16, bold=True)
-s["A2"] = ("Every number comes from rules, no language model · the language model is used only in the Indirect mentions sheet, to say who a pronoun "
-           "refers to, and in the mention finder's look-alike check: All evidence rows marked 'Not the company' are in filings where the finder "
-           "dropped every mention, by that check or by its name rule")
+s["A2"] = ("Every value comes from fixed rules; no language model is used in this workbook, except the mention finder's look-alike check: "
+           "All evidence rows marked 'Not the company' are in filings where the finder dropped every mention, by that check or by its name rule")
 s["A2"].font = Font(name=FONT, size=9)
 s["A4"] = "Each finding sits next to its ground truth: the exact table row, sentence or structured record it was taken from, with every value as written in the source."
 s["A4"].font = Font(name=FONT, size=10)
@@ -289,15 +327,13 @@ for i, h in enumerate(head, 1):
     c.font = Font(name=FONT, bold=True, color="FFFFFF", size=10)
     c.fill = PatternFill("solid", fgColor=NAVY)
 about = [("Holdings (filings)", "Fund filings (N-CSR, N-CSRS, N-2, 424B3, 10-Q, 10-K): schedules of investments", "Shares or principal, cost, fair value, undrawn commitment of each fund's position",
-          "Rules: printed column header, unit and date; iXBRL tags", "Every number written in the table row; unit and date printed; two independent readings of the row agree; loan sums and N-PORT price consistent; equal to Form N-PORT where the fund files it"),
+          "Rules: printed column header, unit and date; iXBRL tags; on converted PDF pages, the column label printed above each number", "Every number written in the table row; unit and date printed; two independent readings of the row agree; loan sums and N-PORT price consistent; equal to Form N-PORT where the fund files it"),
          ("N-PORT holdings", "SEC Form N-PORT (monthly fund holdings)", "Funds holding the company, units, value", "Structured record, no model", "Each value compared with the filing record, field by field"),
          ("Form D offerings", "SEC Form D data set (the company's own notices)", "Date of first sale, amount offered and sold, investors", "Structured record, no model", "Each value compared with the filing record, field by field"),
          ("DOL 401(k)", "Department of Labor Form 5500 (or 5500-SF for a small plan): the company's 401(k) plan", "Plan participants (U.S. staff minimum)", "Structured record, no model", "Each number compared with the original DOL field"),
-         ("All evidence", "Every filing that names the company", "Every mention found: each table row, iXBRL tag, N-CEN field and sentence, and what happened to it", "Scan of every filing for the name", "Status column: verified, held back (with the reason), not a position, or not the company (a look-alike name)"),
-         ("Indirect mentions", "Filings that name the company", "Sentences where it / its / they / the company points back to the company, in a paragraph that does not name it",
-          "Rule picks pronouns within 2 paragraphs of a mention; the language model (GPT-4.1) decides who each one refers to; code checks the name is in the same or the 2 sentences before; a second model (Claude Opus 5.5) must agree. "
-          f"{len(ind) + ind_dup} places found; {ind_dup} sit in a paragraph that names the company, which All evidence already has, so they are not repeated here",
-          "Model's reason and confidence shown; the sentence and link let anyone check it")]
+         ("All evidence", "Every filing that names the company", "Every mention found on a page: each table row, iXBRL tag, N-CEN field, sentence and name, and what happened to it",
+          "Scan of every filing for the name; text read by the filing's structure (paragraph, cell, line of a converted PDF page)",
+          f"Status column: verified, held back (with the reason), not a position, or not the company (a look-alike name). {n_hidden} mentions sit inside hidden XBRL data (not on any page) and are not listed"),]
 for j, row in enumerate(about, 7):
     for i, v in enumerate(row[:4] + (f"=COUNTA('{row[0]}'!A:A)-1",) + row[4:], 1):
         c = s.cell(j, i, v)
@@ -306,20 +342,22 @@ for j, row in enumerate(about, 7):
 r0 = 7 + len(about) + 1
 s.cell(r0, 1, "How to read the comparison").font = Font(name=FONT, size=11, bold=True)
 for k, (a, b) in enumerate([("Side by side", "Every value the pipeline produced (blue) sits next to the same value as written in the source (green)."),
-                            ("Match", "Code compares each pair: Yes = the value is written in the source exactly."),
+                            ("Match", "Code reads the filing again and compares: Yes = every number (with its sign) times the printed scale equals the pipeline value, and the date is printed where shown. No = which part differs."),
                             ("Page", "The page number printed in the filing; '(counted)' where the filing prints none; web-style filings have no pages."),
                             ("Source link", "Opens the filing on SEC EDGAR scrolled to the number, highlighted (text-fragment link; Chrome, Edge, Safari)."),
-                            ("Held back", "Rows that failed a check are not in this workbook; they are listed with the reason in the Evidence Clashes workbook.")], r0 + 1):
+                            ("Scale", "The words that set the scale (\"in thousands\", \"Value ($)\") as printed in the column header, the table's own title, or the heading of the schedule the row is in; words of other tables never count. For shares, value per share is also checked against the funds' Form N-PORT price that month (a thousands/dollars mix-up would be 1,000x off)."),
+                            ("Holder", "The fund of the matching Form N-PORT row; else the one fund named in the heading of the schedule the row is printed in (a report can print the schedules of several funds: a row in another fund's schedule belongs to that fund, not to the filer); else the filer. One position printed in several filings is one row."),
+                            ("Held back", "Rows that failed a check are not in Holdings; they are in All evidence, marked 'Held back' with the reason.")], r0 + 1):
     s.cell(k, 1, a).font = Font(name=FONT, size=9, bold=True)
     s.cell(k, 2, b).font = Font(name=FONT, size=9)
 for col, wd in zip("ABCDEF", (22, 44, 40, 34, 8, 60)):
     s.column_dimensions[col].width = wd
-first = ["About", "All evidence", "Indirect mentions"]
+first = ["About", "All evidence"]
 wb._sheets = [wb[n] for n in first] + [x for x in wb._sheets if x.title not in first]
 wb.active = 0
 wb.calculation = CalcProperties(fullCalcOnLoad=True)
 dest.mkdir(parents=True, exist_ok=True)
 out = dest / f"{name.split(',')[0].replace(' ', '_')}_findings.xlsx"
 wb.save(out)
-print(out, {"holdings": len(hold), "nport": len(npr), "formd": len(fdr), "dol": len(dol), "all evidence": len(allr), "indirect found": len(ind) + ind_dup, "indirect already in All evidence": ind_dup, "indirect": len(ind),
+print(out, {"holdings": len(hold), "nport": len(npr), "formd": len(fdr), "dol": len(dol), "all evidence": len(allr), "hidden XBRL mentions": n_hidden,
             "holdings not matched": sum(1 for h in hold if h["match"].startswith("No"))})
