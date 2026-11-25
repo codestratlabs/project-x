@@ -1,0 +1,357 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Company Evidence on AWS</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a single document column (max 780px); the architecture figure and wide tables use the full 1240px and scroll on their own at phone width. */
+:root {
+  --bg: #f5f6f7; --surface: #ffffff; --fg: #1b2228; --muted: #5b6670; --line: #cdd3d8;
+  --accent: #0b6e8a; --accent-soft: #e3f0f4; --model: #a14d0a; --model-soft: #fbefe4;
+  --ok: #1d7a43; --ok-soft: #e1f2e7; --part: #866700; --part-soft: #f7efd2; --no: #9b2c2c; --no-soft: #f7e3e3;
+  --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif; --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #12171b; --surface: #1a2126; --fg: #e3e8ec; --muted: #9aa6b0; --line: #36414a;
+  --accent: #5cc0dc; --accent-soft: #163640; --model: #f0a35e; --model-soft: #3a2614;
+  --ok: #6fcf97; --ok-soft: #173225; --part: #e6c35c; --part-soft: #352d12; --no: #f08a8a; --no-soft: #3a1c1c; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #12171b; --surface: #1a2126; --fg: #e3e8ec; --muted: #9aa6b0; --line: #36414a;
+  --accent: #5cc0dc; --accent-soft: #163640; --model: #f0a35e; --model-soft: #3a2614;
+  --ok: #6fcf97; --ok-soft: #173225; --part: #e6c35c; --part-soft: #352d12; --no: #f08a8a; --no-soft: #3a1c1c; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15px; line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 40px 72px; }
+main { max-width: 1240px; margin: 0 auto; display: grid; gap: 48px; }
+.col { max-width: 780px; }
+header { border-bottom: 1px solid var(--line); padding-bottom: 24px; }
+h1 { font-size: 30px; line-height: 1.2; margin: 0 0 8px; text-wrap: balance; font-weight: 700; }
+h2 { font-size: 20px; margin: 0 0 12px; text-wrap: balance; font-weight: 600; display: flex; gap: 10px; align-items: baseline; }
+h2 .n { font-family: var(--mono); font-size: 14px; color: var(--accent); font-weight: 500; }
+p { margin: 0 0 12px; }
+.sub { color: var(--muted); font-size: 16px; margin-bottom: 16px; }
+.meta { display: flex; flex-wrap: wrap; gap: 8px 28px; font-size: 13px; color: var(--muted); margin: 0; }
+.meta dt { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.meta dd { margin: 0; color: var(--fg); }
+.meta div { display: grid; gap: 2px; }
+code { font-family: var(--mono); font-size: 13px; }
+figure { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+.scroll { overflow-x: auto; }
+svg.arch { display: block; width: 100%; min-width: 980px; height: auto; color: var(--fg); }
+figcaption { color: var(--muted); font-size: 13px; margin-top: 10px; max-width: 780px; }
+pre { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; overflow-x: auto; margin: 0; font-family: var(--mono); font-size: 13px; line-height: 1.55; }
+.tbl { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; min-width: 720px; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; background: var(--bg); }
+tr:last-child td { border-bottom: 0; }
+td code { white-space: nowrap; }
+.pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+.ok { color: var(--ok); background: var(--ok-soft); } .part { color: var(--part); background: var(--part-soft); } .no { color: var(--no); background: var(--no-soft); }
+ol { margin: 0 0 12px; padding-left: 22px; } li { margin-bottom: 6px; }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 28px; }
+.two > * { min-width: 0; }
+.note { color: var(--muted); font-size: 14px; margin-top: 12px; }
+</style>
+
+<main>
+<header>
+  <h1>Company Evidence on AWS</h1>
+  <p class="sub col">Production architecture for the company evidence pipeline: an input file per company in S3 starts an Airflow run that downloads the company's SEC filings, extracts the evidence and publishes the findings workbook to the company's folder.</p>
+  <dl class="meta">
+    <div><dt>Repository</dt><dd><code>ai4private/company-evidence-pipeline</code></dd></div>
+    <div><dt>Orchestration</dt><dd>Apache Airflow 3.2 (existing deployment)</dd></div>
+    <div><dt>Region</dt><dd>us-east-2</dd></div>
+    <div><dt>Status</dt><dd>Proposed</dd></div>
+    <div><dt>Date</dt><dd>17 November 2026</dd></div>
+  </dl>
+</header>
+
+<section class="col">
+  <h2><span class="n">1</span>Overview</h2>
+  <p>The pipeline code is unchanged. Every folder it reads or writes is set through environment variables (<code>PX_DATA</code>, <code>PX_DUMPS</code>, <code>PX_FINDER_ROOT</code>, <code>PX_WORK</code>) or a command-line option (<code>--formd-db</code>, <code>--employee-dir</code>), so each Airflow task stages its inputs from S3 to local disk, runs the existing script, and writes its outputs back to S3. The production work is the container image, a task wrapper, the Airflow DAGs and the S3 and database locations.</p>
+  <p>Each company is independent: one input file, one DAG run, one set of S3 prefixes. Form D, N-PORT and DOL data are maintained once for all companies by their own ingestion jobs and read by the run. Two tasks call a language model: task 3, where the name finder sets aside look-alike names, and task 6, indirect mentions.</p>
+</section>
+
+<section>
+<h2 class="col"><span class="n">2</span>Architecture</h2>
+<figure>
+<div class="scroll">
+<svg class="arch" viewBox="0 0 1240 700" role="img" aria-label="An input file in S3 is picked up by an Airflow intake DAG, which starts a company_evidence DAG run of seven tasks. Task 2 downloads from SEC EDGAR, tasks 3 and 6 call the language model, task 4 reads Form D from the database and N-PORT and DOL data from S3, and every task writes to the company's S3 prefixes.">
+<defs>
+  <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+  <marker id="ahm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--model)"/></marker>
+</defs>
+<g font-family="IBM Plex Sans, system-ui, sans-serif" font-size="12" fill="currentColor">
+
+  <text x="20" y="16" font-size="11" fill="var(--muted)" letter-spacing="1">TRIGGER</text>
+  <rect x="30" y="24" width="140" height="52" rx="6" fill="var(--surface)" stroke="currentColor"/>
+  <text x="100" y="47" text-anchor="middle" font-weight="600">Analyst</text>
+  <text x="100" y="64" text-anchor="middle" fill="var(--muted)" font-size="11">adds a company</text>
+  <rect x="230" y="24" width="250" height="52" rx="6" fill="var(--accent-soft)" stroke="var(--accent)"/>
+  <text x="355" y="47" text-anchor="middle" font-weight="600">S3 input/&lt;company&gt;/</text>
+  <text x="355" y="64" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11">company.json</text>
+  <rect x="560" y="24" width="220" height="52" rx="6" fill="var(--surface)" stroke="currentColor"/>
+  <text x="670" y="47" text-anchor="middle" font-weight="600">Airflow DAG company_intake</text>
+  <text x="670" y="64" text-anchor="middle" fill="var(--muted)" font-size="11">every 15 min, new inputs</text>
+  <rect x="1000" y="24" width="210" height="52" rx="6" fill="var(--surface)" stroke="currentColor"/>
+  <text x="1105" y="47" text-anchor="middle" font-weight="600">Airflow DAG run</text>
+  <text x="1105" y="64" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11">company_evidence</text>
+  <line x1="170" y1="50" x2="226" y2="50" stroke="currentColor" marker-end="url(#ah)"/>
+  <text x="198" y="42" text-anchor="middle" font-size="11">uploads</text>
+  <line x1="556" y1="50" x2="484" y2="50" stroke="currentColor" marker-end="url(#ah)"/>
+  <text x="520" y="42" text-anchor="middle" font-size="11">lists</text>
+  <line x1="780" y1="50" x2="996" y2="50" stroke="currentColor" marker-end="url(#ah)"/>
+  <text x="888" y="42" text-anchor="middle" font-size="11">triggers (company, run_id)</text>
+
+  <rect x="202" y="110" width="150" height="50" rx="6" fill="var(--surface)" stroke="currentColor" stroke-dasharray="4 3"/>
+  <text x="277" y="131" text-anchor="middle" font-weight="600">SEC EDGAR</text>
+  <text x="277" y="148" text-anchor="middle" fill="var(--muted)" font-size="11">full-text search, archives</text>
+  <rect x="546" y="110" width="150" height="50" rx="6" fill="var(--surface)" stroke="currentColor" stroke-dasharray="4 3"/>
+  <text x="621" y="131" text-anchor="middle" font-weight="600">Secrets Manager</text>
+  <text x="621" y="148" text-anchor="middle" fill="var(--muted)" font-size="11">SEC user agent, LLM key</text>
+  <rect x="890" y="110" width="150" height="50" rx="6" fill="var(--model-soft)" stroke="var(--model)" stroke-dasharray="4 3"/>
+  <text x="965" y="131" text-anchor="middle" font-weight="600">OpenRouter</text>
+  <text x="965" y="148" text-anchor="middle" fill="var(--muted)" font-size="11">GPT-4.1, Claude Opus</text>
+  <line x1="277" y1="160" x2="277" y2="218" stroke="currentColor" marker-start="url(#ah)" marker-end="url(#ah)"/>
+  <text x="285" y="186" font-size="11">≤ 5 requests/s</text>
+  <line x1="965" y1="160" x2="965" y2="218" stroke="var(--model)" marker-start="url(#ahm)" marker-end="url(#ahm)"/>
+  <polyline points="905,160 905,176 449,176 449,218" fill="none" stroke="var(--model)" stroke-dasharray="4 3" marker-end="url(#ahm)"/>
+  <text x="973" y="186" font-size="11" fill="var(--model)">tasks 3 and 6</text>
+  <line x1="1105" y1="76" x2="1105" y2="186" stroke="currentColor" marker-end="url(#ah)"/>
+  <text x="1113" y="134" font-size="11">runs tasks 1–7</text>
+
+  <rect x="20" y="190" width="1200" height="160" rx="10" fill="none" stroke="var(--line)"/>
+  <text x="34" y="209" font-size="11" fill="var(--muted)" letter-spacing="1">DAG company_evidence</text>
+  <rect x="30"  y="222" width="150" height="110" rx="6" fill="var(--surface)" stroke="currentColor"/>
+  <rect x="202" y="222" width="150" height="110" rx="6" fill="var(--surface)" stroke="currentColor"/>
+  <rect x="374" y="222" width="150" height="110" rx="6" fill="var(--model-soft)" stroke="var(--model)" stroke-width="1.5"/>
+  <rect x="546" y="222" width="150" height="110" rx="6" fill="var(--surface)" stroke="currentColor"/>
+  <rect x="718" y="222" width="150" height="110" rx="6" fill="var(--surface)" stroke="currentColor"/>
+  <rect x="890" y="222" width="150" height="110" rx="6" fill="var(--model-soft)" stroke="var(--model)" stroke-width="1.5"/>
+  <rect x="1062" y="222" width="150" height="110" rx="6" fill="var(--surface)" stroke="currentColor"/>
+  <g text-anchor="middle">
+    <text x="105" y="252" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--muted)">1</text>
+    <text x="105" y="272" font-weight="600" font-size="13">Aliases</text>
+    <text x="105" y="292" fill="var(--muted)" font-size="11">input file → name</text>
+    <text x="105" y="307" fill="var(--muted)" font-size="11">list for the finder</text>
+    <text x="277" y="252" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--muted)">2</text>
+    <text x="277" y="272" font-weight="600" font-size="13">SEC download</text>
+    <text x="277" y="292" fill="var(--muted)" font-size="11">filings that name</text>
+    <text x="277" y="307" fill="var(--muted)" font-size="11">the company</text>
+    <text x="449" y="252" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--model)">3</text>
+    <text x="449" y="272" font-weight="600" font-size="13" fill="var(--model)">String match</text>
+    <text x="449" y="292" fill="var(--muted)" font-size="11">company-finder, with</text>
+    <text x="449" y="307" fill="var(--muted)" font-size="11">look-alike check</text>
+    <text x="621" y="252" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--muted)">4</text>
+    <text x="621" y="272" font-weight="600" font-size="13">Records</text>
+    <text x="621" y="292" fill="var(--muted)" font-size="11">Form D, N-PORT,</text>
+    <text x="621" y="307" fill="var(--muted)" font-size="11">DOL Form 5500</text>
+    <text x="793" y="252" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--muted)">5</text>
+    <text x="793" y="272" font-weight="600" font-size="13">Evidence</text>
+    <text x="793" y="292" fill="var(--muted)" font-size="11">rule-based tables,</text>
+    <text x="793" y="307" fill="var(--muted)" font-size="11">validation, holdings</text>
+    <text x="965" y="252" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--model)">6</text>
+    <text x="965" y="272" font-weight="600" font-size="13" fill="var(--model)">Indirect mentions</text>
+    <text x="965" y="292" fill="var(--muted)" font-size="11">language model with</text>
+    <text x="965" y="307" fill="var(--muted)" font-size="11">two independent checks</text>
+    <text x="1137" y="252" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--muted)">7</text>
+    <text x="1137" y="272" font-weight="600" font-size="13">Publish</text>
+    <text x="1137" y="292" fill="var(--muted)" font-size="11">page numbers, links,</text>
+    <text x="1137" y="307" fill="var(--muted)" font-size="11">findings workbook</text>
+  </g>
+  <g stroke="currentColor" marker-end="url(#ah)">
+    <line x1="180" y1="277" x2="198" y2="277"/><line x1="352" y1="277" x2="370" y2="277"/><line x1="524" y1="277" x2="542" y2="277"/>
+    <line x1="696" y1="277" x2="714" y2="277"/><line x1="868" y1="277" x2="886" y2="277"/><line x1="1040" y1="277" x2="1058" y2="277"/>
+  </g>
+
+  <rect x="20" y="372" width="1200" height="108" rx="10" fill="none" stroke="var(--line)"/>
+  <text x="34" y="475" font-size="11" fill="var(--muted)" letter-spacing="1">S3 company-reports-data · per company</text>
+  <g font-family="IBM Plex Mono, monospace" font-size="11" text-anchor="middle">
+    <rect x="30" y="404" width="150" height="56" rx="5" fill="var(--accent-soft)" stroke="var(--accent)"/>
+    <text x="105" y="428">input/&lt;co&gt;/</text><text x="105" y="445" fill="var(--muted)">company.json</text>
+    <rect x="202" y="404" width="150" height="56" rx="5" fill="var(--accent-soft)" stroke="var(--accent)"/>
+    <text x="277" y="428">raw/&lt;co&gt;/sec/</text><text x="277" y="445" fill="var(--muted)">filings, manifest</text>
+    <rect x="374" y="404" width="150" height="56" rx="5" fill="var(--accent-soft)" stroke="var(--accent)"/>
+    <text x="449" y="428">intermediate/</text><text x="449" y="445" fill="var(--muted)">mentions</text>
+    <rect x="718" y="404" width="150" height="56" rx="5" fill="var(--accent-soft)" stroke="var(--accent)"/>
+    <text x="793" y="428">intermediate/</text><text x="793" y="445" fill="var(--muted)">evidence</text>
+    <rect x="890" y="404" width="150" height="56" rx="5" fill="var(--accent-soft)" stroke="var(--accent)"/>
+    <text x="965" y="428">intermediate/</text><text x="965" y="445" fill="var(--muted)">indirect</text>
+    <rect x="1062" y="404" width="150" height="56" rx="5" fill="var(--accent-soft)" stroke="var(--accent)"/>
+    <text x="1137" y="428">reports/&lt;co&gt;/</text><text x="1137" y="445" fill="var(--muted)">&lt;run_id&gt;/</text>
+  </g>
+  <g stroke="currentColor" marker-end="url(#ah)">
+    <line x1="105" y1="404" x2="105" y2="336"/>
+    <line x1="277" y1="336" x2="277" y2="400"/>
+    <line x1="449" y1="336" x2="449" y2="400"/>
+    <line x1="793" y1="336" x2="793" y2="400"/>
+    <line x1="1137" y1="336" x2="1137" y2="400"/>
+  </g>
+  <line x1="965" y1="336" x2="965" y2="400" stroke="var(--model)" marker-end="url(#ahm)"/>
+  <text x="113" y="372" font-size="11">reads</text>
+  <text x="285" y="362" font-size="11">writes</text>
+  <text x="1145" y="362" font-size="11">writes</text>
+
+  <rect x="20" y="520" width="1200" height="164" rx="10" fill="none" stroke="var(--line)"/>
+  <text x="34" y="539" font-size="11" fill="var(--muted)" letter-spacing="1">SHARED REFERENCE DATA · maintained by separate ingestion jobs</text>
+  <rect x="30" y="556" width="300" height="110" rx="6" fill="var(--surface)" stroke="currentColor"/>
+  <text x="44" y="580" font-weight="600">Operations</text>
+  <text x="44" y="600" fill="var(--muted)" font-size="11">Airflow UI: task state and logs</text>
+  <text x="44" y="617" fill="var(--muted)" font-size="11">e-mail on failure (task callbacks)</text>
+  <text x="44" y="634" fill="var(--muted)" font-size="11">runs/&lt;co&gt;/&lt;run_id&gt;.json: status,</text>
+  <text x="44" y="651" fill="var(--muted)" font-size="11">filings, rows, model cost</text>
+  <g text-anchor="middle">
+    <rect x="374" y="582" width="150" height="84" rx="6" fill="var(--surface)" stroke="currentColor"/>
+    <text x="449" y="604" font-weight="600">Form D database</text>
+    <text x="449" y="622" fill="var(--muted)" font-size="11">all Form D notices</text>
+    <text x="449" y="639" fill="var(--muted)" font-size="11">quarterly data sets</text>
+    <rect x="546" y="582" width="150" height="84" rx="6" fill="var(--accent-soft)" stroke="var(--accent)"/>
+    <text x="621" y="604" font-weight="600">reference/nport/</text>
+    <text x="621" y="622" fill="var(--muted)" font-size="11">current S3 files;</text>
+    <text x="621" y="639" fill="var(--muted)" font-size="11">N-PORT pipeline</text>
+    <text x="621" y="656" fill="var(--muted)" font-size="11">in development</text>
+    <rect x="718" y="582" width="150" height="84" rx="6" fill="var(--accent-soft)" stroke="var(--accent)"/>
+    <text x="793" y="604" font-weight="600">reference/dol/</text>
+    <text x="793" y="622" fill="var(--muted)" font-size="11">Form 5500 data sets</text>
+    <text x="793" y="639" fill="var(--muted)" font-size="11">yearly refresh</text>
+  </g>
+  <polyline points="449,582 449,566 793,566 793,582" fill="none" stroke="currentColor"/>
+  <line x1="621" y1="582" x2="621" y2="566" stroke="currentColor"/>
+  <line x1="621" y1="566" x2="621" y2="336" stroke="currentColor" marker-end="url(#ah)"/>
+  <text x="629" y="420" font-size="11">task 4 reads</text>
+  <text x="629" y="436" font-size="11">by CIK / name</text>
+  <rect x="926" y="582" width="286" height="84" rx="6" fill="var(--surface)" stroke="currentColor" stroke-dasharray="4 3"/>
+  <text x="1069" y="604" text-anchor="middle" font-weight="600">Evidence tables (phase 3)</text>
+  <text x="1069" y="622" text-anchor="middle" fill="var(--muted)" font-size="11">workbook rows in a database</text>
+  <text x="1069" y="639" text-anchor="middle" fill="var(--muted)" font-size="11">for queries across companies</text>
+  <line x1="1137" y1="460" x2="1137" y2="578" stroke="currentColor" stroke-dasharray="4 3" marker-end="url(#ah)"/>
+  <text x="1145" y="530" font-size="11">loads</text>
+</g>
+</svg>
+</div>
+<figcaption>Figure 1. One input file produces one DAG run. Tasks 1–7 are the existing pipeline scripts, in the order <code>run_company.py</code> runs them, and each reads from and writes to the company's S3 prefixes. Only task 2 calls the SEC. Tasks 3 and 6 call a language model (coloured): task 3 when the name finder sets aside look-alike names, task 6 for indirect mentions. Dashed boxes are external services or later phases.</figcaption>
+</figure>
+</section>
+
+<section>
+  <h2 class="col"><span class="n">3</span>Components</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Component</th><th>Role</th><th>Implementation</th></tr></thead>
+    <tbody>
+      <tr><td>DAG <code>company_intake</code></td><td>Starts one DAG run per company when its input file is new or has changed since its last run, or when its last successful run is older than the refresh interval (default 7 days, to pick up new filings); never while a run of that company is still active</td><td>Airflow, every 15 minutes; S3 listing of <code>input/</code> (ETag) against the run records in <code>runs/</code>; <code>TriggerDagRunOperator</code> with <code>company</code> and <code>run_id</code></td></tr>
+      <tr><td>DAG <code>company_evidence</code></td><td>Runs tasks 1–7 in order, retries failed tasks, skips task 6 when the input disables it</td><td>Airflow 3.2 (existing deployment), one task per pipeline step</td></tr>
+      <tr><td>Pipeline image</td><td>company-finder and company-evidence-pipeline with their dependencies</td><td>Container image in ECR; each task runs it with a different command</td></tr>
+      <tr><td>Task wrapper</td><td>Copies a task's inputs from S3 to local disk, sets the <code>PX_*</code> folders, runs the script, copies outputs to S3</td><td>Entry-point script in the image; pipeline scripts unchanged</td></tr>
+      <tr><td>Compute</td><td>Task 5 reads every filing (≈ 2,000 documents, 21 GB of HTML for Databricks); task 7 reads them again for the paragraph shown next to each sentence</td><td>EC2 worker sized for the evidence scan; other tasks need little memory</td></tr>
+      <tr><td>Storage</td><td>Inputs, raw filings, intermediate files, reports, run records</td><td>S3 <code>company-reports-data</code></td></tr>
+      <tr><td>Reference data</td><td>Form D, N-PORT and DOL data shared by every company</td><td>Form D database; S3 <code>reference/</code>; maintained by separate ingestion jobs</td></tr>
+      <tr><td>Secrets</td><td><code>SEC_USER_AGENT</code>, <code>OPENROUTER_API_KEY</code></td><td>AWS Secrets Manager; read at task start, never stored in the image or S3</td></tr>
+      <tr><td>Access</td><td>Least privilege per role</td><td>A task role per secret need: only task 2's role reads the SEC user agent and only the role of tasks 3 and 6 reads the model key (ECS backend; on the Docker backend every task has the worker's role and the task wrapper keeps each task to its secret); reference data read-only. Every task role reaches all companies' prefixes: limiting a task to its company's prefixes is a later step</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="two">
+  <div>
+    <h2><span class="n">4</span>Input specification</h2>
+    <p>One file per company at <code>input/&lt;company&gt;/company.json</code>. The format is the configuration the pipeline already reads (<code>pipeline/config/&lt;company&gt;.json</code>), plus <code>run_indirect</code>, which only the task wrapper reads.</p>
+<pre>{
+  "name": "Lungpacer",
+  "company": {
+    "legal_name": "Lungpacer Medical, Inc.",
+    "aliases": ["Lungpacer", "AeroPace"],
+    "description": "Medical device company in Exton, Pennsylvania …",
+    "name_regex": "lungpacer",
+    "cik": "0001708893",
+    "employee_company": "Lungpacer Medical"
+  },
+  "k401_plan": "001",
+  "run_indirect": true
+}</pre>
+    <div class="tbl" style="margin-top:12px"><table style="min-width:0">
+      <thead><tr><th>Field</th><th>Used for</th></tr></thead>
+      <tbody>
+        <tr><td><code>name</code>, <code>company.aliases</code></td><td>SEC full-text search phrases (task 2) and the name finder's names (task 1)</td></tr>
+        <tr><td><code>company.legal_name</code>, <code>company.description</code></td><td>The name finder's look-alike check: what the company is, so another organisation with a similar name can be told apart. Without a description the check judges from the name alone</td></tr>
+        <tr><td><code>company.name_regex</code></td><td>What counts as a mention in the evidence and indirect tasks, and the issuer-name filter for N-PORT</td></tr>
+        <tr><td><code>company.cik</code></td><td>The company's own Form D notices</td></tr>
+        <tr><td><code>company.employee_company</code></td><td>The company label on the DOL Form 5500 rows (required for the DOL sheet)</td></tr>
+        <tr><td><code>k401_plan</code></td><td>Which DOL plan is the 401(k) plan</td></tr>
+        <tr><td><code>run_indirect</code></td><td>Whether task 6 (model cost) runs</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div>
+    <h2><span class="n">5</span>Data layout</h2>
+<pre>s3://company-reports-data/
+  input/&lt;co&gt;/company.json
+  raw/&lt;co&gt;/sec/files/…
+  raw/&lt;co&gt;/sec/manifest.csv
+  intermediate/&lt;co&gt;/&lt;run_id&gt;/mentions/
+  intermediate/&lt;co&gt;/&lt;run_id&gt;/records/
+  intermediate/&lt;co&gt;/&lt;run_id&gt;/evidence/
+  intermediate/&lt;co&gt;/&lt;run_id&gt;/prepared/
+  intermediate/&lt;co&gt;/&lt;run_id&gt;/indirect/
+  reports/&lt;co&gt;/&lt;run_id&gt;/&lt;Name&gt;_findings.xlsx
+  reports/&lt;co&gt;/latest/
+  runs/&lt;co&gt;/&lt;run_id&gt;.json
+  reference/formd/
+  reference/nport/
+  reference/dol/</pre>
+    <div class="tbl" style="margin-top:12px"><table style="min-width:0">
+      <thead><tr><th>Prefix</th><th>Holds</th></tr></thead>
+      <tbody>
+        <tr><td><code>raw/</code></td><td>Filings as downloaded, kept across runs; a new run downloads only filings not yet in the manifest. <code>files/</code> is the pipeline's dump folder for the company, as is</td></tr>
+        <tr><td><code>intermediate/</code></td><td>Files one task produces for the next: the name finder's mentions, structured records, evidence rows, the filings prepared for task 6 (copied, not linked, so another machine can read them) and indirect-mention decisions. Kept per run for audit and for re-running a single task</td></tr>
+        <tr><td><code>reports/</code></td><td>The findings workbook per run; <code>latest/</code> holds the newest</td></tr>
+        <tr><td><code>runs/</code></td><td>Run record: inputs, task status, counts, model cost</td></tr>
+        <tr><td><code>reference/</code></td><td>Shared, read-only: the Form D database file; each company's N-PORT holdings (or the N-PORT database on the worker's disk, 15 GB); the DOL Form 5500 rows labelled with <code>company.employee_company</code></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<section>
+  <h2 class="col"><span class="n">6</span>Tasks</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>#</th><th>Task</th><th>Script</th><th>Reads</th><th>Writes</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Aliases</td><td><code>tools/make_companies_file.py</code></td><td><code>input/&lt;co&gt;/</code></td><td>companies file for task 3, with the description for the look-alike check</td></tr>
+      <tr><td>2</td><td>SEC download</td><td><code>tools/download_filings.py</code></td><td>SEC EDGAR, <code>raw/</code> manifest</td><td><code>raw/&lt;co&gt;/sec/</code></td></tr>
+      <tr><td>3</td><td>String match</td><td>company-finder, <code>--llm-disambiguate --out &lt;co&gt;.csv</code></td><td><code>raw/</code>, companies file, OpenRouter</td><td><code>intermediate/…/mentions/</code>: <code>&lt;co&gt;_mentions.csv</code> (one row per mention, read by task 5) and <code>&lt;co&gt;_dropped.csv</code> (look-alikes)</td></tr>
+      <tr><td>4</td><td>Records</td><td><code>pipeline/sources/records.py</code>; <code>pipeline/sources/nport.py export-db</code> and <code>build</code> when the N-PORT database is used</td><td>Form D database, <code>reference/</code></td><td><code>intermediate/…/records/</code></td></tr>
+      <tr><td>5</td><td>Evidence</td><td><code>pipeline/evidence/*</code> (to <code>locate.py</code>), <code>prepare_filings.py</code></td><td><code>raw/</code>, mentions, records</td><td><code>intermediate/…/evidence/</code>, <code>intermediate/…/prepared/</code></td></tr>
+      <tr><td>6</td><td>Indirect mentions</td><td><code>pipeline/indirect/run_all.py</code></td><td>Prepared filings, OpenRouter</td><td><code>intermediate/…/indirect/</code></td></tr>
+      <tr><td>7</td><td>Publish</td><td><code>locate_mentions.py</code>, <code>findings_excel.py</code></td><td><code>raw/</code>, <code>intermediate/</code></td><td><code>reports/</code>, <code>runs/</code></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="col">
+  <h2><span class="n">7</span>Delivery plan</h2>
+  <ol>
+    <li><strong>Phase 1.</strong> Pipeline image, task wrapper and the <code>company_evidence</code> DAG. Acceptance: the Databricks workbook produced on AWS matches the current workbook cell for cell in every value; only text a language model writes (its reasons) may differ in wording, because model answers are not repeatable word for word.</li>
+    <li><strong>Phase 2.</strong> <code>company_intake</code> DAG, run records and failure alerts; Form D from the database and N-PORT from S3, moving to the N-PORT pipeline when it is released. Acceptance: Lungpacer and Horizon3 run from their input files alone.</li>
+    <li><strong>Phase 3.</strong> Evidence tables in a database, using the schema in the pipeline design document.</li>
+    <li><strong>Phase 4.</strong> Additional sources, one connector at a time: Form D of other issuers, loan terms, stated figures, H-1B, FPDS and USAspending, Companies House.</li>
+  </ol>
+</section>
+
+<section>
+  <h2 class="col"><span class="n">8</span>Decisions and risks</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Item</th><th>Detail</th><th>Proposed handling</th></tr></thead>
+    <tbody>
+      <tr><td>SEC rate limit</td><td>SEC allows 10 requests per second; the limit is shared with the existing SEC ingestion DAG</td><td>One Airflow pool for all SEC calls; the pipeline's SEC client is paced at 5 requests per second (<code>tools/sec_http.py</code>)</td></tr>
+      <tr><td>Model cost</td><td>Task 6: ≈ $5.4 per 2,000 filing documents (Databricks); $0.34 for Lungpacer's 61 (15 November 2026). Task 3's look-alike check also calls the model</td><td><code>run_indirect</code> switch per company; cost recorded in the run record</td></tr>
+      <tr><td>DOL and N-PORT inputs</td><td><code>records.py</code> reads DOL rows already labelled with the company (<code>company.employee_company</code>) and one N-PORT holdings file per company. <code>welfare_plans_by_year.csv</code> is not produced today, so the DOL step reports itself incomplete after it has written the 401(k) rows</td><td>The DOL ingestion job labels rows by company; task 4 builds the N-PORT file with <code>nport.py export-db</code> from the N-PORT database, or reads one the N-PORT pipeline writes</td></tr>
+      <tr><td>Model text</td><td>A re-run can word the model's reasons differently</td><td>Compare runs on values and decisions; keep each run's reasons in <code>intermediate/</code></td></tr>
+      <tr><td>Concurrency</td><td>Two runs of one company would write the same <code>raw/</code> prefix</td><td><code>company_intake</code> starts no run for a company while one is active</td></tr>
+      <tr><td>Worker size</td><td>The evidence scan holds large filings in memory</td><td>Dedicated EC2 worker for task 5, or a remote-execution operator</td></tr>
+      <tr><td>Re-runs</td><td>A company is run again when new filings appear</td><td>Raw filings kept; new <code>run_id</code> per run; <code>latest/</code> updated on success</td></tr>
+      <tr><td>Evidence database</td><td>Table design for cross-company queries</td><td>Decision pending, based on the pipeline design document</td></tr>
+    </tbody>
+  </table></div>
+</section>
+</main>
+
+</body></html>
