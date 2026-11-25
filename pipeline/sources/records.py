@@ -86,15 +86,21 @@ def form5500(emp: Path, cfg: dict, out: Path) -> dict:
     n1 = write(out, "dol_form5500.csv", ["FORM_PLAN_YEAR_BEGIN_DATE", "SPONS_DFE_PN", "TOT_ACT_PARTCP_BOY_CNT", "TOT_ACTIVE_PARTCP_CNT", "PLAN_NAME", "ACK_ID"],
                [[r["FORM_PLAN_YEAR_BEGIN_DATE"], r["SPONS_DFE_PN"], r["TOT_ACT_PARTCP_BOY_CNT"], r["TOT_ACTIVE_PARTCP_CNT"], r.get("PLAN_NAME", ""), r.get("ACK_ID", "")]
                 for k, r in sorted(latest.items())])
+    # the 401(k) plan only (config k401_plan; a company's other plans, e.g. 501 health and welfare, are not its 401(k)), one row per plan
+    # year: the full Form 5500 when the plan filed one, else the short form 5500-SF that small plans file; the latest filing of the year
     pp = {}
     for k, r in latest.items():
-        if r["SPONS_DFE_PN"] == cfg["k401_plan"]:
-            pp[int(k[0])] = [k[0], cfg["k401_plan"], r["TOT_ACT_PARTCP_BOY_CNT"], r["TOT_ACTIVE_PARTCP_CNT"]]
-    for r in rd("form5500sf_rows.csv"):
-        y = int(r["SF_PLAN_YEAR_BEGIN_DATE"][:4]) if "SF_PLAN_YEAR_BEGIN_DATE" in r else None
-        if y and y not in pp and r.get("SF_PLAN_NUM", r.get("SF_PN")) == cfg["k401_plan"]:
-            pp[y] = [str(y), cfg["k401_plan"], r.get("SF_TOT_ACT_PARTCP_BOY_CNT", ""), r.get("SF_TOT_ACT_PARTCP_EOY_CNT", "")]
-    n2 = write(out, "plan_participants.csv", ["plan_year", "plan_number", "active_boy", "active_eoy"], [pp[y] for y in sorted(pp)])
+        if r["SPONS_DFE_PN"] == cfg["k401_plan"] and k[0].isdigit():       # a row with no plan year cannot be placed in a year
+            pp[int(k[0])] = [k[0], cfg["k401_plan"], r["TOT_ACT_PARTCP_BOY_CNT"], r["TOT_ACTIVE_PARTCP_CNT"], "5500"]
+    sf: dict = {}
+    for r in (rd("form5500sf_rows.csv") if (emp / "form5500sf_rows.csv").exists() else []):
+        y = int(r["SF_PLAN_YEAR_BEGIN_DATE"][:4]) if (r.get("SF_PLAN_YEAR_BEGIN_DATE") or "")[:4].isdigit() else None
+        if y and r.get("SF_PLAN_NUM", r.get("SF_PN")) == cfg["k401_plan"] and (y not in sf or r.get("ACK_ID", "") > sf[y].get("ACK_ID", "")):
+            sf[y] = r
+    for y, r in sf.items():
+        if y not in pp:
+            pp[y] = [str(y), cfg["k401_plan"], r.get("SF_TOT_ACT_PARTCP_BOY_CNT", ""), r.get("SF_TOT_ACT_PARTCP_EOY_CNT", ""), "5500-SF"]
+    n2 = write(out, "plan_participants.csv", ["plan_year", "plan_number", "active_boy", "active_eoy", "form"], [pp[y] for y in sorted(pp)])
     w_ = [r for r in csv.DictReader(open(emp.parent / "data" / "welfare_plans_by_year.csv", encoding="utf-8", newline="")) if r["company"] == co]
     write(out, "welfare_plans.csv", ["plan_year", "plan_number", "plan_kind", "active_participants_eoy"], [[r["plan_year"], r["plan_number"], r["plan_kind"], r["active_participants_eoy"]] for r in w_])
     h = [r for r in rd("schedule_h_rows.csv") if r.get("SCH_H_PN") == cfg["k401_plan"]]

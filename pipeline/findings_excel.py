@@ -34,7 +34,8 @@ LOC = {r["id"]: r for r in rd(ev / "locator.csv")}
 H = rd(ev / "holdings_from_evidence.csv")
 NP = rd(px.DUMPS / f"{co}_nport" / "nport_holdings.csv")
 FD = rd(px.OUT / co / "formd_offerings.csv")
-DOL = rd(px.INPUTS / co / "data" / "dol_form5500.csv")
+DOL = rd(px.INPUTS / co / "data" / "plan_participants.csv")   # the 401(k) plan only (records.py); dol_form5500.csv holds every plan
+LOOKF = {r["accession"]: r["why"] for r in rd(ev / "lookalike_filings.csv")}   # filings where company-finder dropped every mention (evidence_build)
 FONT, NAVY = "Arial", "1F3A5F"
 BLUE, GREEN = "EAF1FB", "EAF6EC"
 BAD = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\ud800-\udfff￾￿]")
@@ -211,13 +212,18 @@ DC = [("#", "#", 5), ("filed", "Filed", 11), ("form", "Form", 7), ("acc", "Acces
       ("inv_w", "Investors as filed", 30), ("match", "Match", 26), ("link", "EDGAR filing", 10)]
 sheet(wb, "Form D offerings", DC, fdr, {"first": "p", "first_w": "g", "off": "p", "off_w": "g", "sold": "p", "sold_w": "g", "inv": "p", "inv_w": "g"})
 
-# DOL Form 5500 (structured records): every plan the company files for (401(k), health and welfare, severance)
-dol = [dict(year=r["FORM_PLAN_YEAR_BEGIN_DATE"][:4], plan=r["SPONS_DFE_PN"], pname=r.get("PLAN_NAME", ""), ack=r.get("ACK_ID", ""), boy=r["TOT_ACT_PARTCP_BOY_CNT"], boy_w=f"{r['TOT_ACT_PARTCP_BOY_CNT']} (TOT_ACT_PARTCP_BOY_CNT)",
-            act=r["TOT_ACTIVE_PARTCP_CNT"], act_w=f"{r['TOT_ACTIVE_PARTCP_CNT']} (TOT_ACTIVE_PARTCP_CNT)", match="Yes: every number is the same as in the DOL field",
+# DOL 401(k) (structured records)
+FIELDS = {"5500": ("TOT_ACT_PARTCP_BOY_CNT", "TOT_ACTIVE_PARTCP_CNT"), "5500-SF": ("SF_TOT_ACT_PARTCP_BOY_CNT", "SF_TOT_ACT_PARTCP_EOY_CNT")}
+if DOL and "form" not in DOL[0]:                       # written by an older records.py: 5500 and 5500-SF rows cannot be told apart
+    print("DOL 401(k): plan_participants.csv has no 'form' column (an older records.py wrote it); DOL field names left out: run sources/records.py again", flush=True)
+FIELD = lambda r, i: FIELDS[r["form"]][i] if r.get("form") in FIELDS else "DOL field not recorded: run sources/records.py again"   # noqa: E731
+dol = [dict(year=r["plan_year"], plan=r["plan_number"], boy=r["active_boy"], boy_w=f"{r['active_boy']} ({FIELD(r, 0)})",
+            act=r["active_eoy"], act_w=f"{r['active_eoy']} ({FIELD(r, 1)})",
+            match="Yes: every number is the same as in the DOL field" if r.get("form") in FIELDS else "Not shown: run sources/records.py again",
             link="https://www.dol.gov/agencies/ebsa/about-ebsa/our-activities/public-disclosure/foia/form-5500-datasets") for r in DOL]
-OC = [("#", "#", 5), ("year", "Plan year", 9), ("plan", "Plan number", 9), ("pname", "Plan name as filed", 30), ("ack", "DOL filing ACK_ID", 24), ("boy", "Active participants, start (pipeline)", 14), ("boy_w", "Start: as filed (DOL field)", 30),
-      ("act", "Active participants, end of year (pipeline)", 14), ("act_w", "End of year: as filed (DOL field)", 30), ("match", "Match", 26), ("link", "DOL data set", 10)]
-sheet(wb, "DOL Form 5500", OC, dol, {"boy": "p", "boy_w": "g", "act": "p", "act_w": "g"})
+OC = [("#", "#", 5), ("year", "Plan year", 9), ("plan", "Plan number", 9), ("boy", "Active participants, start (pipeline)", 14), ("boy_w", "As filed (DOL field)", 30),
+      ("act", "Active participants (pipeline)", 14), ("act_w", "As filed (DOL field)", 30), ("match", "Match", 26), ("link", "DOL data set", 10)]
+sheet(wb, "DOL 401(k)", OC, dol, {"boy": "p", "boy_w": "g", "act": "p", "act_w": "g"})
 
 # All evidence: every mention of the company the scan found, and what happened to it
 LOCALL = LOC
@@ -259,6 +265,7 @@ WHY = lambda r: ("Verified: in Holdings" if r["evidence_id"] in held_ids else   
                  "Verified: same position as one in Holdings, printed a second time in the same filing (e.g. its restricted-securities note)" if r["evidence_id"] in same_filing_ids else
                  "Verified: same row as one in Holdings, printed again in another filing" if r["evidence_id"] in repeat_ids else
                  "Held back: " + r["why"] if r["tier"] == "C review" else
+                 "Not the company: " + LOOKF[r["accession"]] if r["tier"] == "not a position" and r.get("accession") in LOOKF else
                  "Not a position: " + re.sub(r"^not a position:\s*", "", r["why"] or r.get("problem", "")) if r["tier"] == "not a position" else
                  "Held back: failed a check (" + failed[r["evidence_id"]] + ")" if r["evidence_id"] in failed else
                  "Held back: another filing gives this position a different number" if r["evidence_id"] in conflict_ids else
@@ -288,7 +295,7 @@ for p_ in prose:
     l_ = LOCALL.get(f"S{p_['accession']}:{p_['pos']}", {})
     kind, status = KIND[p_["kind"]]
     allr.append(dict(kind=kind, form=p_["form"], filer=re.sub(r"\s*\(CIK \d+\)", "", p_["filer"]), filed=p_["file_date"], asof=p_["near_heading_date"],
-                     text=p_["sentence"][:1000], status=status, para=p_["block"][:4000] if p_["kind"] == "sentence" else "",
+                     text=p_["sentence"][:1000], status=f"Not the company: {LOOKF[p_['accession']]}" if p_["accession"] in LOOKF else status, para=p_["block"][:4000] if p_["kind"] == "sentence" else "",
                      page=l_.get("page", ""), link=link(p_["url"], l_.get("search_text", "")), acc=p_["accession"]))
 allr.sort(key=lambda r: (r["filed"], r["acc"]))
 AC = [("#", "#", 6), ("kind", "Kind", 11), ("form", "Form", 8), ("filer", "Filed by", 28), ("filed", "Filing date", 11), ("asof", "As of", 11),
@@ -301,7 +308,8 @@ s.title = "About"
 s.sheet_view.showGridLines = False
 s["A1"] = f"{name}: findings and their ground truth"
 s["A1"].font = Font(name=FONT, size=16, bold=True)
-s["A2"] = "Every value comes from fixed rules; no language model is used anywhere in this workbook"
+s["A2"] = ("Every value comes from fixed rules; no language model is used in this workbook, except the mention finder's look-alike check: "
+           "All evidence rows marked 'Not the company' are in filings where the finder dropped every mention, by that check or by its name rule")
 s["A2"].font = Font(name=FONT, size=9)
 s["A4"] = "Each finding sits next to its ground truth: the exact table row, sentence or structured record it was taken from, with every value as written in the source."
 s["A4"].font = Font(name=FONT, size=10)
@@ -314,10 +322,10 @@ about = [("Holdings (filings)", "Fund filings (N-CSR, N-CSRS, N-2, 424B3, 10-Q, 
           "Rules: printed column header, unit and date; iXBRL tags; on converted PDF pages, the column label printed above each number", "Every number written in the table row; unit and date printed; two independent readings of the row agree; loan sums and N-PORT price consistent; equal to Form N-PORT where the fund files it"),
          ("N-PORT holdings", "SEC Form N-PORT (monthly fund holdings)", "Funds holding the company, units, value", "Structured record, no model", "Each value compared with the filing record, field by field"),
          ("Form D offerings", "SEC Form D data set (the company's own notices)", "Date of first sale, amount offered and sold, investors", "Structured record, no model", "Each value compared with the filing record, field by field"),
-         ("DOL Form 5500", "Department of Labor Form 5500 (every plan: 401(k), health and welfare, severance)", "Plan participants (U.S. staff minimum)", "Structured record, no model", "Each number compared with the original DOL field"),
+         ("DOL 401(k)", "Department of Labor Form 5500 (or 5500-SF for a small plan): the company's 401(k) plan", "Plan participants (U.S. staff minimum)", "Structured record, no model", "Each number compared with the original DOL field"),
          ("All evidence", "Every filing that names the company", "Every mention found on a page: each table row, iXBRL tag, N-CEN field, sentence and name, and what happened to it",
           "Scan of every filing for the name; text read by the filing's structure (paragraph, cell, line of a converted PDF page)",
-          f"Status column: verified, held back (with the reason), or not a position. {n_hidden} mentions sit inside hidden XBRL data (not on any page) and are not listed"),]
+          f"Status column: verified, held back (with the reason), not a position, or not the company (a look-alike name). {n_hidden} mentions sit inside hidden XBRL data (not on any page) and are not listed"),]
 for j, row in enumerate(about, 7):
     for i, v in enumerate(row[:4] + (f"=COUNTA('{row[0]}'!A:A)-1",) + row[4:], 1):
         c = s.cell(j, i, v)
