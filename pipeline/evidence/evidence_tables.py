@@ -178,7 +178,7 @@ def from_ixbrl(t: str, key: str) -> list:
     for cid, r in rows.items():
         q, cs, v = r.get("InvestmentOwnedBalancePrincipalAmount") or r.get("InvestmentOwnedBalanceShares"), r.get("InvestmentOwnedAtCost"), r.get("InvestmentOwnedAtFairValue")
         if q or cs or v:
-            out.append(dict(method="iXBRL tag", name=r["name"][:120], qty=q, cost=cs, value=v, date=r["date"], header="iXBRL concepts", unit="scale attribute of the tag", unit_factor=1, raw=json.dumps({k: v_ for k, v_ in r.items() if k not in ("name", "date")})[:300], table=cid, row="", problem=""))
+            out.append(dict(method="iXBRL tag", name=r["name"][:120], qty=q, cost=cs, value=v, date=r["date"], header="iXBRL concepts", unit="scale attribute of the tag", unit_factor=1, raw=json.dumps({k: v_ for k, v_ in r.items() if k not in ("name", "date")})[:3000], table=cid, row="", problem=""))
     return out
 
 
@@ -197,23 +197,25 @@ def from_table(t: str, m, key: str, last: list):
     g = grid(trs[row])
     if not any(re.search(key, c[2], re.I) for c in g):
         return None
+    if prose_cell(g, key):                      # a paragraph placed in a table for layout (a director's bio): read as a sentence
+        return None
     if len(g) == 1 and row + 1 < len(trs):     # the issuer on its own row, its instrument and numbers on the next
         nx = grid(trs[row + 1])
         if any(NUMBER.match(c[2]) for c in nx):
             g = g + nx
     if len(g) == 2 and re.fullmatch(r"\d{1,2}\.\d{1,2}%?", g[1][2]):
-        return dict(problem="percent summary, not a position", name=g[0][2][:120], raw=" | ".join(c[2] for c in g)[:300], table=a, row=row, header="", unit="", unit_factor=None, method="table", qty=None, cost=None, value=None, date="")
+        return dict(problem="percent summary, not a position", name=g[0][2][:120], raw=" | ".join(c[2] for c in g)[:1500], table=a, row=row, header="", unit="", unit_factor=None, method="table", qty=None, cost=None, value=None, date="")
     h, src = header_of(trs[:row]), "same table"
     if not h and last and last[0]:
         h, src = last[0], "earlier table"
     if h and src == "same table":
         last[:] = [h]
     if not h and not any(NUMBER.match(c[2]) and float(NUMBER.match(c[2])[1].replace(",", "")) >= 100 for c in g):
-        return dict(problem="not a position: no amount in the row", name=g[0][2][:120], raw=" | ".join(c[2] for c in g)[:300], table=a, row=row, header="", unit="", unit_factor=None, method="table", qty=None, cost=None, value=None, date="")
+        return dict(problem="not a position: no amount in the row", name=g[0][2][:120], raw=" | ".join(c[2] for c in g)[:1500], table=a, row=row, header="", unit="", unit_factor=None, method="table", qty=None, cost=None, value=None, date="")
     if not h:
-        return dict(problem="no column header found", name=g[0][2][:120], raw=" | ".join(c[2] for c in g)[:300], table=a, row=row, header="", unit="", unit_factor=None, method="table", qty=None, cost=None, value=None, date="")
+        return dict(problem="no column header found", name=g[0][2][:120], raw=" | ".join(c[2] for c in g)[:1500], table=a, row=row, header="", unit="", unit_factor=None, method="table", qty=None, cost=None, value=None, date="")
     cols = [(c[0], c[1], col_of(c[2]), unit_of(c[2]), c[2]) for c in h]
-    r = dict(method="table", name="", qty=None, cost=None, value=None, commitment=None, date="", table=a, row=row, header=" | ".join(c[2] for c in h)[:200] + f" [{src}]", raw=" | ".join(c[2] for c in g)[:300], problem="")
+    r = dict(method="table", name="", qty=None, cost=None, value=None, commitment=None, date="", table=a, row=row, header=" | ".join(c[2] for c in h)[:200] + f" [{src}]", raw=" | ".join(c[2] for c in g)[:1500], problem="")
     r["name"] = next((c[2] for c in g if re.search(key, c[2], re.I)), "")[:140]
     units, pu = {}, page_unit(t, a)
     for ci, c in enumerate(g):
@@ -321,6 +323,25 @@ def from_table(t: str, m, key: str, last: list):
     return r
 
 
+WORD = re.compile(r"[A-Za-z][A-Za-z’'-]*")
+
+
+def prose_cell(g: list, key: str) -> bool:
+    """Is the cell that names the company running text, not a row of data? Proxy statements and prospectuses put whole
+    paragraphs in tables only to place them on the page. A data row has short cells and amounts; a security description
+    ("Lungpacer Medical Inc., Series B Preferred Stock (acquired 3/1/20) (a)(b)") is mostly capitalised words. So: the
+    name's cell has at least 25 words, at least 3 of them sentence words in lower case making up 40% or more, a full stop
+    followed by more text or at the end, and no other cell of the row holds an amount of 100 or more."""
+    cell = next((c[2] for c in g if re.search(key, c[2], re.I)), "")
+    words = WORD.findall(cell)
+    if len(words) < 25:
+        return False
+    lower = sum(1 for w in words if w[0].islower())
+    if lower < 0.4 * len(words) or not re.search(r"[a-z][.!?][\"”’)]?(?:\s+[A-Z“\"(]|\s*$)", cell):
+        return False
+    return not any(c[2] != cell and NUMBER.match(c[2]) and float(NUMBER.match(c[2])[1].replace(",", "")) >= 100 for c in g)
+
+
 def key_in(tr, key):
     return bool(re.search(key, tr, re.I))
 
@@ -374,7 +395,7 @@ def from_layout(t: str, m, key: str, lay):
         problem = "box layout: no value column"
     return dict(method="text layout", name=name, qty=num("qty"), cost=num("cost"), value=num("value"), commitment=num("commitment"), date="",
                 table="layout", row=lay.lines[i][0], header=header or "no column label above the numbers", unit=u or "no unit printed; dollars",
-                unit_factor=f or 1, raw=raw[:300], problem=problem, qty_factor=qf)
+                unit_factor=f or 1, raw=raw[:1500], problem=problem, qty_factor=qf)
 
 
 PDF_PROSE: list = []
@@ -393,7 +414,7 @@ def from_ncen(t: str, key: str) -> list:
             fund = re.search(r"<mgmtInvFundName>(.*?)</mgmtInvFundName>", t[q:m.start()], re.S) if q >= 0 else None
             out.append(dict(method="N-CEN XML", name=f"principal transaction with {html.unescape(nm[1])}", qty=None, cost=None, value=float(amt[1]),
                             date="", table="principalTransactions", row=m.start(), header="principalTotalPurchaseSale", unit="dollars as filed (XML field)",
-                            unit_factor=1, raw=re.sub(r"\s+", " ", m[1])[:300], problem="", qty_factor=1, as_of=end[1] if end else "",
+                            unit_factor=1, raw=re.sub(r"\s+", " ", m[1])[:1500], problem="", qty_factor=1, as_of=end[1] if end else "",
                             as_of_source="N-CEN reportEndingPeriod" if end else "no date found", schedule=html.unescape(fund[1]) if fund else ""))
     return out
 
@@ -449,7 +470,7 @@ def sentence(t: str, m) -> str:
     return (left + " " + right).strip()[:1500]
 
 
-CACHE_V = "px5-notes-date"     # cache version key (a stored value, not a module name): bump when a reader changes, so cached rows of older code are not reused
+CACHE_V = "px6-prose-cells"     # cache version key (a stored value, not a module name): bump when a reader changes, so cached rows of older code are not reused
 RECOVER = ("no column header found", "amount cells at the end of the row but", "no number under a known column")
 
 

@@ -294,6 +294,7 @@ if prose and "kind" not in prose[0]:
 KIND = {"sentence": ("sentence", "Sentence that names the company"), "pdf line": ("PDF text", "Text of a PDF filing that names the company"),
         "heading or label": ("name or heading", "Names the company; not a sentence and no amount next to it"),
         "table cell": ("table cell", "Names the company in a table cell with no amount"),
+        "hidden text": ("hidden text", "Names the company in text too small to read on the page (e.g. the text layer under a slide picture); a reader sees only the picture"),
         "pdf table line": ("PDF table line", "Held back: a line of a PDF table that names the company; its amounts are not read by rule, check by eye")}
 n_hidden = 0
 for p_ in prose:
@@ -303,7 +304,7 @@ for p_ in prose:
     l_ = LOCALL.get(f"S{p_['accession']}:{p_['pos']}", {})
     kind, status = KIND[p_["kind"]]
     allr.append(dict(kind=kind, form=p_["form"], filer=re.sub(r"\s*\(CIK \d+\)", "", p_["filer"]), filed=p_["file_date"], asof=p_["near_heading_date"],
-                     text=p_["sentence"][:1000], status=f"Not the company: {LOOKF[p_['accession']]}" if p_["accession"] in LOOKF else status, para=p_["block"][:4000] if p_["kind"] == "sentence" else "",
+                     text=p_["sentence"][:1000], status=f"Not the company: {LOOKF[p_['accession']]}" if p_["accession"] in LOOKF else status, para=p_["block"][:4000] if p_["kind"] in ("sentence", "hidden text") else "",
                      page=l_.get("page", ""), link=link(p_["url"], l_.get("search_text", "")), acc=p_["accession"]))
 allr.sort(key=lambda r: (r["filed"], r["acc"]))
 AC = [("#", "#", 6), ("kind", "Kind", 11), ("form", "Form", 8), ("filer", "Filed by", 28), ("filed", "Filing date", 11), ("asof", "As of", 11),
