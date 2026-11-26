@@ -40,6 +40,56 @@ CONNECTOR = re.compile(r"(?:[,;(\-–—]|\b(?:the|a|an|of|and|or|to|in|for|by|w
 WORD = re.compile(r"[A-Za-z][A-Za-z’'-]*")
 
 
+MONTH = r"(?:January|February|March|April|May|June|July|August|September|October|November|December)"
+QUARTER = re.compile(r"\bQ([1-4])\s+((?:19|20)\d{2})\b")
+ENDED = re.compile(r"\b(?:(?:three|six|nine|twelve)\s+months|(?:fiscal\s+)?years?|quarters?)\s+ended\s+(" + MONTH + r")\s+(\d{1,2}),\s*((?:19|20)\d{2})"
+                   r"(?:\s*(?:,|and)\s*((?:19|20)\d{2}))?", re.I)
+
+
+def to_date(s: str):
+    import datetime as dt
+    for f in ("%B %d, %Y", "%Y-%m-%d"):
+        try:
+            return dt.datetime.strptime(" ".join((s or "").split()), f).date()
+        except ValueError:
+            pass
+    return None
+
+
+def named_periods(s: str, per) -> set:
+    """The period end dates a text names. "Q1 2024" is dated only when its quarter ends in the filing's period month
+    (Q1 = March, ... Q4 = December), as the same quarter of another year; any other quarter, and a second year
+    ("three months ended March 31, 2024 and 2023"), adds None: a period this rule cannot date."""
+    import datetime as dt
+    out = set()
+    for q, y in QUARTER.findall(s):
+        try:
+            out.add(per.replace(year=int(y)) if per.month == 3 * int(q) else None)
+        except ValueError:                                      # February 29 in a year without one
+            out.add(None)
+    for mo, d, y, y2 in ENDED.findall(s):
+        out.add(dt.datetime.strptime(f"{mo.title()} {d} {y}", "%B %d %Y").date())
+        if y2:
+            out.add(None)
+    return out
+
+
+def listed(seen: set, raw_seen: set, url: str, raw: str, kind: str, place: int, sentence: str) -> bool:
+    """Does this mention get its own row? A sentence: once per paragraph (place = where its paragraph starts), so the same
+    words printed again in another paragraph (a 10-Q reprinting last year's text) are listed again, and the name twice in
+    one sentence is listed once. Every other kind (hidden data, a heading, a cell, a list line): once per text in a filing
+    (raw = the scan's text of the mention), as the scan has always listed them. raw_seen and seen are updated here."""
+    first = (url, raw) not in raw_seen
+    raw_seen.add((url, raw))
+    if kind != "sentence" and not first:
+        return False
+    k = (url, place, kind, sentence)
+    if kind != "hidden" and k in seen:
+        return False
+    seen.add(k)
+    return True
+
+
 def clean(s: str) -> str:
     return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]*>", " ", s)).replace("\xa0", " ").replace("​", "").replace("‌", ""))
 
@@ -154,6 +204,57 @@ class Doc:
             after = after + " " + clean(self.t[na:nb]).strip()
         return before, after
 
+    def after_bullet(self, pos: int) -> bool:
+        """The text just before the name's block is only a bullet or dash mark, alone in its own element."""
+        i = bisect.bisect_right(self.bend, pos)
+        a = self.bend[i - 1] if i else 0
+        s = re.sub(r"(?:\s*<[^>]*>)+\s*$", "", self.t[max(0, a - 600):a])     # the tags between the mark and the block
+        gt = s.rfind(">")
+        return gt >= 0 and bool(re.fullmatch(r"[●•▪◦·○■□►➢\-–—]", html.unescape(s[gt + 1:]).replace("\xa0", " ").strip()))
+
+    def named_period(self, pos: int, sent: str, period: str) -> str:
+        """The period a sentence is about, when the filing's own words say so: the sentence, the part of its paragraph
+        before it, or one of the two paragraphs just above it (a heading ends the search; the nearest text that names a
+        period decides) names exactly one period ("Q1 2024", "three months ended March 31, 2024"), earlier than the
+        filing's period and at most two years before it. A 10-Q prints last year's paragraphs again next to this year's
+        ("...profitable in Q1 2024 ..."); their sentences belong to last year's period. "" otherwise: the filing's own
+        period applies (none named, two named, or a quarter that cannot be dated against this filing)."""
+        per = to_date(period)
+        if not per or not sent:
+            return ""
+        before, after = self.block(pos)
+        full = before + after
+        k = full.find(sent[:60])
+        texts = [sent, full[:k] if k > 0 else ""]
+        i, n = bisect.bisect_right(self.bend, pos) - 1, 0
+        while i > 0 and n < 2:
+            a, b, txt = self._seg(i)
+            i -= 1
+            if not txt or self.hidden(a + (b - a) // 2) or FURNITURE.fullmatch(txt):
+                continue
+            if not is_sentence(txt):
+                break                                           # a heading: the section starts here
+            texts.append(txt)
+            n += 1
+        for s in texts:
+            ds = named_periods(s, per)
+            if ds:
+                d = ds.pop() if len(ds) == 1 else None
+                if d and d < per and (per - d).days <= 800:
+                    return d.isoformat() if re.fullmatch(r"\d{4}-\d{2}-\d{2}", period.strip()) else f"{d:%B} {d.day}, {d.year}"
+                return ""
+        return ""
+
+    def para_start(self, pos: int) -> int:
+        """Where the paragraph that holds pos starts: its block, or, for the second half of a sentence joined across a page
+        break, the block of its first half (so the name in both halves is still one sentence)."""
+        a = self.block_start(pos)
+        for _ in range(5):
+            if a not in self.join_prev:
+                break
+            a = self.join_prev[a][0]
+        return a
+
     def block_start(self, pos: int) -> int:
         """Where the text block that holds pos starts (a text layer too small to read: where that element starts)."""
         small = self.tiny_text(pos)
@@ -196,6 +297,8 @@ class Doc:
         full, i = before + after, len(before)                  # the whole block, so a sentence end right before the name is seen
         sent = S.sentence_at(full, i, i + (len(name) if after.startswith(name) else 0))
         kind = "sentence" if is_sentence(sent) else "table cell" if self.in_cell(pos) else "heading or label"
+        if kind == "sentence" and sent.strip() == full.strip() and len(sent) < 200 and self.after_bullet(pos):
+            kind = "list item"                                  # "–" in its own box, the line in the next (a list drawn as boxes)
         if len(full) > 4000:                                    # a very long block: the 4,000 characters around the name
             blk = ("…" if i > 2000 else "") + full[max(0, i - 2000):i + 2000] + ("…" if i + 2000 < len(full) else "")
         else:
@@ -270,10 +373,10 @@ def main() -> None:
         rows, fields = list(rd), list(rd.fieldnames or [])
     else:
         shutil.copy(src, raw)
-    fields = [f for f in fields if f not in ("kind", "block")] + ["kind", "block"]
+    fields = [f for f in fields if f not in ("kind", "block", "period_named")] + ["kind", "block", "period_named"]
     paths = {r["sec_url"]: px.DUMPS / m.name.replace("_manifest.csv", "") / r["file"] for m in px.DUMPS.glob(f"{co}*_manifest.csv")
              for r in csv.DictReader(open(m, encoding="utf-8"))}
-    out, cur, doc, seen = [], None, None, set()
+    out, cur, doc, seen, raw_seen = [], None, None, set(), set()
     import collections
     n = collections.Counter()
     for r in sorted(rows, key=lambda r: (r["url"], int(r["pos"]) if r["pos"].isdigit() else 0)):
@@ -292,13 +395,13 @@ def main() -> None:
         if not m:
             raise SystemExit(f"position {pos} of {r['url']} does not hold the name: the filing changed since the scan")
         x = doc.mention(pos, m.end())
-        k = (r["url"], doc.block_start(pos), x["kind"], x["sentence"])
-        if x["kind"] != "hidden" and k in seen:            # the name twice in one sentence (same block, same words): listed once
-            n["same sentence, listed once"] += 1
+        place = doc.para_start(pos) if x["kind"] == "sentence" else doc.block_start(pos)
+        if not listed(seen, raw_seen, r["url"], r["sentence"], x["kind"], place, x["sentence"]):
+            n["same words in the same paragraph (or same text, not a sentence): listed once"] += 1
             continue
-        seen.add(k)
         n[x["kind"]] += 1
-        out.append({**r, "sentence": x["sentence"], "kind": x["kind"], "block": x["block"]})
+        out.append({**r, "sentence": x["sentence"], "kind": x["kind"], "block": x["block"],
+                    "period_named": doc.named_period(pos, x["sentence"], r.get("period", "")) if x["kind"] == "sentence" else ""})
     w = csv.DictWriter(open(src, "w", newline="", encoding="utf-8"), fields)
     w.writeheader()
     w.writerows(out)

@@ -31,6 +31,7 @@ for man in sorted(px.DUMPS.glob(f"{co}*_manifest.csv")):
     for r in csv.DictReader(open(man, encoding="utf-8")):
         local[r["accession"]].append(px.DUMPS / f / r["file"])
 from pages import BREAK, FOOT, breaks_of, page_at, txt   # noqa: E402,F401
+import fragments as FR   # noqa: E402  link text that lands on its own row (checked against the whole filing)
 
 
 def printed_number(raw: str, vals: list) -> str:
@@ -78,6 +79,16 @@ def prefix_of(raw: str, needle: str) -> str:
             before = c[:c.find(needle)].strip(" $(")
             return " ".join(before.split()[-3:]) if before else ""
     return ""
+
+
+def cell_prefix(raw: str, prefix: str, text: str) -> str:
+    """The prefix the workbook puts into a row's link (findings_excel.cell_prefix): only when it sits in the same cell."""
+    return prefix if prefix and any(prefix in c and text in c and c.find(prefix) < c.find(text) for c in raw.split("|")) else ""
+
+
+def link_of(r: dict) -> dict:
+    """The locator columns of a row's checked link (fragments.own_link); search_text and prefix stay as they are."""
+    return {"link_mode": r["mode"], "link_start": r["start"], "link_end": r["end"], "link_check": r["check"]}
 
 
 def name_candidates(text: str) -> list:
@@ -137,6 +148,12 @@ for n, (acc, items) in enumerate(sorted(need.items())):
             cache["plain"] = txt(t)
             cache["blocks"] = blocks_of(t)
         return cache[p]
+
+    def page_of(p):
+        t_, _ = text_of(p)
+        if cache.get("page") is None:
+            cache["page"] = FR.Page(t_)
+        return cache["page"]
     for kind, it in items:
         if kind == "h":
             e = E[it["evidence_id"]]
@@ -156,6 +173,7 @@ for n, (acc, items) in enumerate(sorted(need.items())):
                         m = m or re.search(rf'<ix:nonFraction[^>]*contextRef="{re.escape(e["table"])}"[^>]*>(.*?)</ix:nonFraction>', t, re.S)
                         if m:
                             res.update(page=page_at(t, br, m.start()), search_text=txt(m[1] or m[2] or ""), where="schedule of investments row (iXBRL)")
+                            res.update(link_of(FR.own_link(page_of(p), ("pos", m.start()), res["search_text"], res.get("prefix", ""))))
                     else:
                         pos = int(e["table"]) if e["method"] == "table" else int(e["row"])
                         st = printed_number(e["raw"], vals) if vals else ""
@@ -165,6 +183,14 @@ for n, (acc, items) in enumerate(sorted(need.items())):
                         st = fit([st, cut(head), cut(name), head, name], cache["blocks"])    # a row without an amount: its printed name
                         res.update(page=page_at(t, br, pos), search_text=st, prefix=prefix_of(e["raw"], st) if vals else "",
                                    where=f"table row {int(str(e['row']).split('-')[0]) + 1}" if e["method"] == "table" else "text block")
+                        own = ("pos", pos)
+                        if e["method"] == "table":                       # the row itself, as evidence_tables.from_table counts rows
+                            z_ = t.find("</table>", pos)
+                            trs_ = list(re.finditer(r"<tr\b[^>]*>(.*?)</tr>", t[pos:z_] if z_ > pos else "", re.S | re.I))
+                            r_ = int(str(e["row"]).split("-")[0])
+                            own = ("row", pos + trs_[r_].start(), pos + trs_[r_].end()) if r_ < len(trs_) else None
+                        if own:
+                            res.update(link_of(FR.own_link(page_of(p), own, res["search_text"], cell_prefix(e["raw"], res.get("prefix", ""), res["search_text"]))))
             res["times_in_filing"] = cache.get("plain", "").count(res["search_text"]) if res["search_text"] and cache.get("plain") else ""
             rows[it["evidence_id"]] = res
         elif kind == "p":
@@ -178,6 +204,7 @@ for n, (acc, items) in enumerate(sorted(need.items())):
                     t, br = text_of(p)
                     res["page"] = page_at(t, br, int(it["pos"]))
                     res["search_text"] = fit(name_candidates(snt), cache["blocks"])   # '' for hidden XBRL data: the link opens the filing
+                    res.update(link_of(FR.own_link(page_of(p), ("pos", int(it["pos"])), res["search_text"], "")))
             res["times_in_filing"] = cache.get("plain", "").count(res["search_text"]) if res["search_text"] and cache.get("plain") else ""
             rows[res["id"]] = res
         else:
@@ -197,7 +224,7 @@ for n, (acc, items) in enumerate(sorted(need.items())):
     if n % 200 == 0:
         print("filings", n, "of", len(need), flush=True)
 with open(ev / "locator.csv", "w", newline="", encoding="utf-8") as fh:
-    w = csv.DictWriter(fh, ["id", "page", "search_text", "prefix", "times_in_filing", "where"])
+    w = csv.DictWriter(fh, ["id", "page", "search_text", "prefix", "times_in_filing", "where", "link_mode", "link_start", "link_end", "link_check"])
     w.writeheader()
     w.writerows(rows.values())
 print(len(rows), "rows located;", sum(1 for r in rows.values() if r["page"]), "with a page;", sum(1 for r in rows.values() if r["search_text"]), "with search text")

@@ -7,6 +7,7 @@ One row per source cell group. Every row keeps the filing, table, row, printed h
 from __future__ import annotations
 
 import argparse
+import bisect
 import collections
 import csv
 import hashlib
@@ -24,11 +25,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # pipeline/: path
 import paths as px  # noqa: E402
 import second_reader as L2      # noqa: E402  the second table reader (its own table and date rules)
 import layout_reader as LR      # noqa: E402  filings made of absolutely placed text boxes (HTML converted from PDF)
+import prose_reader as PR        # noqa: E402  its paragraph blocks: a sentence is listed once per paragraph, not once per filing
 MONTH = r"(?:January|February|March|April|May|June|July|August|September|October|November|December)"
 COL = [("text", r"\btype\b"), ("date", r"\bdate\b|\bacquired\b"), ("pct", r"%|percent"), ("per_share", r"per\s+share|per\s+unit"), ("unrealized", r"unrealized|appreciation|depreciation"),
        ("foot", r"footnote"), ("qty", r"units?\s*/\s*commitment"), ("total", r"^\s*total\b(?![^|]*\b(?:undrawn|unfunded)\b)[^|]*\bcommitments?\b"), ("funded", r"(?<!un)funded\s+commitment|(?<!un)drawn\s+commitments?|\bless\s*:?\s*drawn\b"), ("commitment", r"unfunded|commitment|undrawn"), ("qty", r"\bpar\s+values?\b|\bprincipal\s+amount\b"), ("value", r"\b(fair|market)?\s*value\b"), ("cost", r"\bcost\b"), ("qty", r"\bshares\b|\bprincipal\b|\bpar\b|\bunits\b|\bquantity\b|\bface\b|\bnumber of\b"), ("date", r"\bdate\b|\bacquired\b"), ("pct", r"%|percent")]
 HEAD_UNIT = re.compile(r"\(?\$?\s*000[’'`]?s?\)?|thousands|millions|\$\s?m\b", re.I)
 PAGE_UNIT = re.compile(r"(?:\bin\s|\$\s|expressed in\s|amounts?\s|value\s|cost\s)[^.<]{0,40}?(thousands|millions|\$\s?000[’'`]?s?)\b", re.I)
+LEADER = re.compile(r"(?:\.\s?){4,}")             # dot leaders joining a PDF table's label to its numbers ("Zenith ...... 1992")
 NUMBER = re.compile(r"^[-−–]?\s*\(?\$?\s*\(?\s*(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*\)?\s*[*†‡#]*\s*(?:\([a-z0-9]{1,3}\)\s*,?\s*)*[a-z]{0,1}$")
 
 
@@ -143,6 +146,61 @@ def period(t: str, form: str) -> str:
             except ValueError:
                 pass
     return next(iter(ds.values())) if len(ds) == 1 else ""      # one date, however many ways it is written
+
+
+def doc_period(t: str) -> str:
+    """The period the filing reports on, from its own iXBRL cover tag (dei:DocumentPeriodEndDate), as written; "" when the
+    filing has no such tag or gives more than one. The date of a sentence's filing, not of a table near it. The tag can
+    hold other tags ("March 31, <ix:nonNumeric ...>2024</ix:nonNumeric>"), so its whole element is read."""
+    tags = set()
+    for m in re.finditer(r'<ix:nonNumeric\b[^>]*name="dei:DocumentPeriodEndDate"[^>]*>', t, re.I):
+        depth, k = 1, m.end()
+        for x in re.finditer(r"<(/?)ix:nonNumeric\b[^>]*>", t[m.end():m.end() + 3000], re.I):
+            depth += -1 if x[1] else 1
+            if depth == 0:
+                k = m.end() + x.start()
+                break
+        else:
+            continue
+        tags.add(" ".join(html.unescape(re.sub(r"<[^>]*>", "", t[m.end():k])).split()))
+    tags = {x for x in tags if DATE.fullmatch(x) or re.fullmatch(r"\d{4}-\d{2}-\d{2}", x)}
+    return tags.pop() if len(tags) == 1 else ""
+
+
+ASOF = re.compile(r"\bas\s+(?:of|at)\s+(" + MONTH + r"\s+\d{1,2},\s*(?:19|20)\d{2})", re.I)
+TEXT_BREAK = re.compile(r"</?(?:p|div|h[1-6]|li|ul|ol|center|blockquote)\b[^>]*>|<br\s*/?>", re.I)
+PAGE_FURNITURE = re.compile(r"(?:page\s+)?(?:[A-Z]{1,2}\s?-\s?)?\d{1,4}|table\s+of\s+contents|index", re.I)
+
+
+def printed_table_date(t: str, a: int, pos: int) -> str:
+    """The one date the filing prints for a whole table as "as of <date>": in the table's own header rows (the rows above
+    the name's row, before the first row with a number), or in the text right above the table: the line just above it
+    when it is a heading ("Allocation as of March 31, 2023 (expressed as ...)") or a lead-in ending in ':' ("As of March
+    31, 2023, the allocation ... was as follows:"), and a lead-in just above that heading. "" unless exactly one such date
+    is printed there and no other year: "as of March 31, 2024 and 2023" names two periods. Shown only for rows with no
+    other date; it never replaces or feeds the date a holding is checked against."""
+    texts = []
+    row_at = t.rfind("<tr", a, pos)
+    for tr in re.findall(r"<tr\b.*?</tr>", t[a:row_at] if row_at > a else "", re.I | re.S)[:6]:
+        cells = [text(c) for c in re.findall(r"<t[dh]\b[^>]*>(.*?)</t[dh]>", tr, re.I | re.S)]
+        if any(re.fullmatch(r"[$(]*[-−–]?\d[\d,.]*\s*%?\)?", c) for c in cells if c):
+            break                                                # the first data row: the header ends above it
+        texts.append(" ".join(c for c in cells if c))
+    prev_end = t.rfind("</table", 0, a)
+    blocks = [text(x) for x in TEXT_BREAK.split(t[max(prev_end, a - 6000, 0):a])]
+    blocks = [x for x in blocks if x and not PAGE_FURNITURE.fullmatch(x)]
+    for k, x in enumerate(reversed(blocks[-2:])):
+        if x.endswith(":") or (k == 0 and len(x) <= 200):
+            texts.append(x)
+        else:
+            break                                                # not a heading or lead-in: the table has none
+    dates = {norm_any(d) for s in texts for d in ASOF.findall(s)}
+    years = {y for s in texts for y in re.findall(r"\b(?:19|20)\d{2}\b", s)}
+    if len(dates) == 1:
+        d = dates.pop()
+        if d and years == {d[-4:]}:
+            return d
+    return ""
 
 
 def as_of(anch: list, per: str, pos: int) -> tuple:
@@ -452,6 +510,11 @@ def from_pdf(p: Path, key: str) -> list:
                 continue
             nums = [float(x.replace(",", "")) for x in re.findall(r"(?<![\d/.])\d{1,3}(?:,\d{3})+(?:\.\d+)?(?![\d/])", ln)]
             if not nums or len(ln) > 160:                  # prose, not a table line: keep the sentence for facts
+                nxt = lines[j + 1] if j + 1 < len(lines) else ""
+                if LEADER.search(ln) or LEADER.match(nxt):  # a dot-leader table ("Horizon³ ...... 1990 1,354"): that one row, not its neighbours
+                    row = ln if LEADER.search(ln) else ln + " " + nxt
+                    PDF_PROSE.append({"pos": f"page {i + 1}", "sentence": re.sub(r"\s+", " ", row)[:1500], "near_heading_date": ""})
+                    continue
                 flat = re.sub(r"\s+", " ", " ".join(lines[max(0, j - 3):j + 4]))
                 for snt in re.split(r"(?<=[.!?])\s+(?=[A-Z])", flat):
                     if re.search(key, snt, re.I):
@@ -480,7 +543,7 @@ def sentence(t: str, m) -> str:
     return (left + " " + right).strip()[:1500]
 
 
-CACHE_V = "px7-year-not-amount"     # cache version key (a stored value, not a module name): bump when a reader changes, so cached rows of older code are not reused
+CACHE_V = "px12-sentence-per-paragraph"    # cache version key (a stored value, not a module name): bump when a reader changes, so cached rows of older code are not reused
 RECOVER = ("no column header found", "amount cells at the end of the row but", "no number under a known column")
 
 
@@ -613,9 +676,9 @@ def scan(job: tuple) -> dict:
             for r in tagged:
                 r["as_of"], r["as_of_source"] = r["date"], "iXBRL context date"
             res["rows"] += tagged
-            anch, per = anchors(t), period(t, form)
+            anch, per, dper = anchors(t), period(t, form), doc_period(t)
             ctx2 = {"t": t, "filed": filed}          # the second reader's state: schedule and notes headings, read once per filing
-            last, seen, prose_seen = [[]], set(), set()
+            last, seen, prose_seen, bends = [[]], set(), set(), None
             lay = LR.Layout(t) if len(re.findall(r"position\s*:\s*absolute", t[:400000], re.I)) > 200 else None
             for m in re.finditer(key, t, re.I):
                 r = from_table(t, m, key, last)
@@ -628,10 +691,13 @@ def scan(job: tuple) -> dict:
                 if r is None:
                     res["other"] += 1
                     sent = sentence(t, m)
-                    if sent and sent not in prose_seen:
-                        prose_seen.add(sent)
+                    if sent and bends is None:
+                        bends = [b.end() for b in PR.BLOCK.finditer(t)]
+                    k_ = (sent, bisect.bisect_right(bends, m.start()) if sent else 0)   # the same words in another paragraph (a 10-Q
+                    if sent and k_ not in prose_seen:                                     # reprinting last year's text) are a mention of their own
+                        prose_seen.add(k_)
                         d, src, _ = as_of(anch, per, m.start())
-                        res.setdefault("prose", []).append({"pos": m.start(), "sentence": sent, "near_heading_date": d if src.startswith("heading") else ""})
+                        res.setdefault("prose", []).append({"pos": m.start(), "sentence": sent, "near_heading_date": d if src.startswith("heading") else "", "period": dper})
                     continue
                 for x in (r if isinstance(r, list) else [r]):
                     k = (x.get("table"), x.get("row"))
@@ -641,6 +707,8 @@ def scan(job: tuple) -> dict:
                     if not x.get("as_of"):
                         d, src, sch = as_of(anch, per, m.start())
                         x["as_of"], x["as_of_source"], x["schedule"] = check_date(d, src, sch, ctx2, m.start(), filed, per, x.get("date", ""))
+                    if not x.get("as_of") and x.get("method") == "table" and isinstance(x.get("table"), int):
+                        x["printed_as_of"] = printed_table_date(t, x["table"], m.start())   # for the workbook only
                     res["rows"].append(x)
     except Exception as e:
         res["error"] = f"{type(e).__name__}: {e}"[:160]
@@ -677,10 +745,10 @@ def main() -> None:
             if p.suffix.lower() in (".htm", ".html", ".pdf", ".xml") and (not a.only or re.search(a.only, r["form"])):
                 files[str(p)] = r
     jobs = sorted(((p, key, str(cache), files[p]["form"], files[p]["accession"], files[p].get("file_date", "")[:10]) for p in files), key=lambda j: Path(j[0]).stat().st_size if Path(j[0]).exists() else 0)
-    head = ["accession", "form", "file_date", "filer", "as_of", "as_of_source", "schedule", "method", "name", "qty", "qty_factor", "cost", "value", "commitment", "unit_factor", "date", "header", "unit", "raw", "table", "row", "problem", "align", "methods", "url", "second_reading"]   # new column last: every main column keeps its place
+    head = ["accession", "form", "file_date", "filer", "as_of", "as_of_source", "schedule", "method", "name", "qty", "qty_factor", "cost", "value", "commitment", "unit_factor", "date", "header", "unit", "raw", "table", "row", "problem", "align", "methods", "url", "second_reading", "printed_as_of"]   # new column last: every main column keeps its place
     n = collections.Counter()
     pf = open(ev / "prose_sentences.csv", "w", newline="", encoding="utf-8")
-    pw = csv.DictWriter(pf, ["accession", "form", "file_date", "filer", "url", "pos", "near_heading_date", "sentence"])
+    pw = csv.DictWriter(pf, ["accession", "form", "file_date", "filer", "url", "pos", "near_heading_date", "period", "sentence"])
     pw.writeheader()
     with mp.Pool(a.workers, initializer=limit, maxtasksperchild=25) as pool, open(ev / "parsed_rows.csv", "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, head, extrasaction="ignore")

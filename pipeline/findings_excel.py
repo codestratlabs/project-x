@@ -11,6 +11,7 @@ import bisect
 import csv
 import html
 import json
+import collections
 import re
 import sys
 import urllib.parse
@@ -37,6 +38,17 @@ FD = rd(px.OUT / co / "formd_offerings.csv")
 FD_ALL = rd(px.OUT / co / "formd_filings.csv")   # every filing (records.py); the earlier versions of each offering
 DOL = rd(px.INPUTS / co / "data" / "plan_participants.csv")   # the 401(k) plan only (records.py); dol_form5500.csv holds every plan
 LOOKF = {r["accession"]: r["why"] for r in rd(ev / "lookalike_filings.csv")}   # filings where company-finder dropped every mention (evidence_build)
+
+
+def lookalike_text(why: str, printed: list) -> str:
+    """The look-alike reason as shown: its example name ("e.g. Horizon3 Investment Management LLP") only when the filing prints
+    that phrase as one piece of text, i.e. inside one of the rows this sheet lists for the filing. company-finder can read two
+    lines of a PDF as one ("Caribbean, Bermuda" + "Horizon3" -> "Bermuda Horizon3"); such an example is left out."""
+    m = re.search(r" \(e\.g\. (.+)\)$", why)
+    norm = lambda x: " ".join(str(x).split()).lower()          # noqa: E731
+    if m and not any(norm(m[1]) in norm(t) for t in printed):
+        return why[:m.start()]
+    return why
 FONT, NAVY = "Arial", "1F3A5F"
 BLUE, GREEN = "EAF1FB", "EAF6EC"
 BAD = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\ud800-\udfff￾￿]")
@@ -54,6 +66,19 @@ def link(url: str, text: str, prefix: str = "") -> str:
     clean = lambda x: re.sub(r"\s+([,.;:)%])", r"\1", re.sub(r"\(\s+", "(", " ".join(x.split())))   # as the browser shows it   # noqa: E731
     text, prefix = clean(text), clean(prefix)
     return url + "#:~:text=" + (enc(prefix) + "-," if prefix else "") + enc(text)
+
+
+def row_link(url: str, loc: dict, text: str, prefix: str = "") -> str:
+    """A row's link as the locator checked it against the filing (evidence/fragments.py): "keep" (or an older locator
+    file) is the link as before; "text" searches a longer text printed only on this row; "range" searches start,end (a text
+    printed once just above the row, then the row's own text); "plain" opens the filing without a search."""
+    mode = loc.get("link_mode") or "keep"
+    if mode == "keep" or not url.lower().endswith((".htm", ".html")):
+        return link(url, text, prefix)
+    if mode == "plain":
+        return url
+    clean = lambda x: re.sub(r"\s+([,.;:)%])", r"\1", re.sub(r"\(\s+", "(", " ".join(x.split())))   # as link() does   # noqa: E731
+    return url + "#:~:text=" + enc(clean(loc["link_start"])) + ("," + enc(clean(loc["link_end"])) if loc.get("link_end") else "")
 
 
 def cell_prefix(raw: str, prefix: str, text: str) -> str:
@@ -122,7 +147,7 @@ for h in H:
                      cm=fmt(h["commitment_usd"]), cm_w=w_["commitment_w"], unit=w_["unit_w"], scale_chk=w_.get("scale_check", ""), asof=h["as_of_date"], asof_src=w_["asof_src"], asof_w=w_["asof_w"],
                      match=w_["match"], proof={"A N-PORT": "also equal to the fund's Form N-PORT filing", "A tag": "iXBRL tag", "A XML": "N-CEN XML"}.get(h["tier"], "printed table"),
                      ground=w_["ground"], form=h["form"], filer=re.sub(r"\s*\(CIK \d+\)", "", h["filer"]), filed=h["filing_date"], page=l_.get("page", ""),
-                     search=l_.get("search_text", ""), link=link(h["sec_url"], l_.get("search_text", ""), cell_prefix(w_["ground"], l_.get("prefix", ""), l_.get("search_text", "")))))
+                     search=l_.get("search_text", ""), link=row_link(h["sec_url"], l_, l_.get("search_text", ""), cell_prefix(w_["ground"], l_.get("prefix", ""), l_.get("search_text", "")))))
 HC = [("#", "#", 5), ("holder", "Holder", 26), ("hsrc", "How the holder is named", 22), ("vehicle", "Vehicle", 16), ("ptype", "Type", 12), ("security", "Security", 10),
       ("sh", "Shares / principal (pipeline)", 13), ("sh_w", "Shares / principal as written in the filing", 15), ("cost", "Cost $ (pipeline)", 14), ("cost_w", "Cost as written in the filing", 14),
       ("fv", "Fair value $ (pipeline)", 14), ("fv_w", "Fair value as written in the filing", 14), ("cm", "Undrawn commitment $ (pipeline)", 13), ("cm_w", "Commitment as written", 12),
@@ -278,7 +303,46 @@ def readable(r: dict) -> str:
                 out.append(f"{name} = {val.strip()}")
             out += [f"{name} {a} = {b}" for a, b in re.findall(r'(\w+)="([^"]*)"', attrs)]
         return "N-CEN XML fields: " + " | ".join(out)
+    if r["method"] == "table":
+        return table_text(tidy(x))
     return tidy(x)
+
+
+BULLET = re.compile(r"[●•▪◦·○■□►➢✓*\-–—]")
+
+
+def table_text(x: str) -> str:
+    """A table row as a reader sees it. Filings often print a sign in its own cell: "(2,524" | ")" , "13" | "%", "$" | "1,000".
+    Those pieces are put back on their number; every value and every other cell stays as printed."""
+    out = []
+    for c in (c.strip() for c in x.split("|")):
+        if out and re.fullmatch(r"[)%]{1,2}", c):          # a closing bracket or percent sign on its own
+            out[-1] += c
+        elif out and re.fullmatch(r"\(?\$|\$?\(", out[-1]):   # a dollar sign or opening bracket on its own
+            out[-1] += c
+        else:
+            out.append(c)
+    out = [re.sub(r"([($])\s+(?=[\d$(])", r"\1", c) for c in out]  # "( 2,524" -> "(2,524", "$ 1,000" -> "$1,000"
+    return " | ".join(out)
+
+
+def printed_date(r: dict) -> str:
+    """A row with no date of its own that is not a position: the one "as of" date printed for its whole table (in the
+    table's header or the heading / lead-in right above it), as YYYY-MM-DD like the other table dates. A position keeps
+    the date the pipeline checked it with, even when that is none (it is then held back for review)."""
+    import datetime as dt
+    if r.get("tier") != "not a position" or not r.get("printed_as_of"):
+        return ""
+    try:
+        return dt.datetime.strptime(r["printed_as_of"], "%B %d, %Y").date().isoformat()
+    except ValueError:
+        return ""
+
+
+def list_item(r: dict) -> bool:
+    """A bullet laid out as a one-row table: a bullet mark and the item's text, nothing else."""
+    cells = [c.strip() for c in tidy(r["raw"]).split("|") if c.strip()]
+    return r["method"] == "table" and len(cells) == 2 and bool(BULLET.fullmatch(cells[0])) and not re.search(r"(?<![A-Za-z])\d", cells[1])   # "Horizon3" is a name, "1,000" an amount
 
 
 held_ids = {h["evidence_id"] for h in H}
@@ -288,11 +352,18 @@ same_filing_ids = {x for x in repeat_ids if x in E and E[x]["accession"] == _acc
 failed = {x["evidence_id"]: x["fail"] for x in rd(ev / "validation_fail.csv")}
 conflict_ids = {x["evidence_id"] for x in rd(ev / "holdings_conflicts.csv")}
 subtotal = {x["evidence_id"]: x.get("why", "") for x in rd(ev / "holdings_subtotals.csv")}   # left out of Holdings by evidence_holdings
+PRINTED: dict = collections.defaultdict(list)       # accession -> the text of each row listed for it (look-alike examples are checked against it)
+for _r in E.values():
+    PRINTED[_r["accession"]].append(readable(_r))
+for _p in rd(ev / "prose_sentences.csv"):
+    if _p.get("kind") != "hidden":
+        PRINTED[_p["accession"]].append(_p["sentence"])
+LOOKS = {a: lookalike_text(w, PRINTED.get(a, [])) for a, w in LOOKF.items()}
 WHY = lambda r: ("Verified: in Holdings" if r["evidence_id"] in held_ids else   # noqa: E731
                  "Verified: same position as one in Holdings, printed a second time in the same filing (e.g. its restricted-securities note)" if r["evidence_id"] in same_filing_ids else
                  "Verified: same row as one in Holdings, printed again in another filing" if r["evidence_id"] in repeat_ids else
                  "Held back: " + r["why"] if r["tier"] == "C review" else
-                 "Not the company: " + LOOKF[r["accession"]] if r["tier"] == "not a position" and r.get("accession") in LOOKF else
+                 "Not the company: " + LOOKS[r["accession"]] if r["tier"] == "not a position" and r.get("accession") in LOOKS else
                  "Not a position: " + re.sub(r"^not a position:\s*", "", r["why"] or r.get("problem", "")) if r["tier"] == "not a position" else
                  "Held back: failed a check (" + failed[r["evidence_id"]] + ")" if r["evidence_id"] in failed else
                  "Held back: another filing gives this position a different number" if r["evidence_id"] in conflict_ids else
@@ -302,9 +373,10 @@ WHY = lambda r: ("Verified: in Holdings" if r["evidence_id"] in held_ids else   
 allr = []
 for r in E.values():
     l_ = LOCALL.get(r["evidence_id"], {})
-    allr.append(dict(kind={"table": "table row", "iXBRL tag": "iXBRL tag", "N-CEN XML": "N-CEN XML", "pdf line": "PDF line", "text layout": "text block"}.get(r["method"], r["method"]),
-                     form=r["form"], filer=re.sub(r"\s*\(CIK \d+\)", "", r["filer"]), filed=r["file_date"], asof=r.get("report_date") or r["as_of"],
-                     text=readable(r), status=WHY(r), page=l_.get("page", ""), link=link(r["url"], l_.get("search_text", ""), cell_prefix(r["raw"], l_.get("prefix", ""), l_.get("search_text", ""))), acc=r["accession"]))
+    li = list_item(r)
+    allr.append(dict(kind="list item" if li else {"table": "table row", "iXBRL tag": "iXBRL tag", "N-CEN XML": "N-CEN XML", "pdf line": "PDF line", "text layout": "text block"}.get(r["method"], r["method"]),
+                     form=r["form"], filer=re.sub(r"\s*\(CIK \d+\)", "", r["filer"]), filed=r["file_date"], asof=r.get("report_date") or r["as_of"] or printed_date(r),
+                     text=readable(r).replace(" | ", " ", 1) if li else readable(r), status=WHY(r), page=l_.get("page", ""), link=row_link(r["url"], l_, l_.get("search_text", ""), cell_prefix(r["raw"], l_.get("prefix", ""), l_.get("search_text", ""))), acc=r["accession"]))
 # Mentions outside tables, read again by the filing's structure (evidence/prose_reader.py): the sentence that names the
 # company with its whole block, or a name / heading / cell that is not a sentence. Mentions inside hidden XBRL data are
 # not on any page and are counted on the About sheet, not listed.
@@ -314,6 +386,7 @@ if prose and "kind" not in prose[0]:
 KIND = {"sentence": ("sentence", "Sentence that names the company"), "pdf line": ("PDF text", "Text of a PDF filing that names the company"),
         "heading or label": ("name or heading", "Names the company; not a sentence and no amount next to it"),
         "table cell": ("table cell", "Names the company in a table cell with no amount"),
+        "list item": ("list item", "Names the company in a line of a list (not a full sentence)"),
         "hidden text": ("hidden text", "Names the company in text too small to read on the page (e.g. the text layer under a slide picture); a reader sees only the picture"),
         "pdf table line": ("PDF table line", "Held back: a line of a PDF table that names the company; its amounts are not read by rule, check by eye")}
 n_hidden = 0
@@ -323,9 +396,9 @@ for p_ in prose:
         continue
     l_ = LOCALL.get(f"S{p_['accession']}:{p_['pos']}", {})
     kind, status = KIND[p_["kind"]]
-    allr.append(dict(kind=kind, form=p_["form"], filer=re.sub(r"\s*\(CIK \d+\)", "", p_["filer"]), filed=p_["file_date"], asof=p_["near_heading_date"],
-                     text=p_["sentence"][:1000], status=f"Not the company: {LOOKF[p_['accession']]}" if p_["accession"] in LOOKF else status, para=p_["block"][:4000] if p_["kind"] in ("sentence", "hidden text") else "",
-                     page=l_.get("page", ""), link=link(p_["url"], l_.get("search_text", "")), acc=p_["accession"]))
+    allr.append(dict(kind=kind, form=p_["form"], filer=re.sub(r"\s*\(CIK \d+\)", "", p_["filer"]), filed=p_["file_date"], asof=p_.get("period_named") or p_.get("period", ""),   # the period its text names, else the filing's own period (never a table's heading date)
+                     text=p_["sentence"][:1000], status=f"Not the company: {LOOKS[p_['accession']]}" if p_["accession"] in LOOKS else status, para=p_["block"][:4000] if p_["kind"] in ("sentence", "hidden text", "list item") else "",
+                     page=l_.get("page", ""), link=row_link(p_["url"], l_, l_.get("search_text", "")), acc=p_["accession"]))
 allr.sort(key=lambda r: (r["filed"], r["acc"]))
 AC = [("#", "#", 6), ("kind", "Kind", 11), ("form", "Form", 8), ("filer", "Filed by", 28), ("filed", "Filing date", 11), ("asof", "As of", 11),
       ("text", "Evidence (table row or sentence, as printed)", 80), ("para", "Whole paragraph (sentences only)", 90), ("status", "What happened to it", 44), ("page", "Page", 9), ("link", "Source (opens at the text)", 10)]

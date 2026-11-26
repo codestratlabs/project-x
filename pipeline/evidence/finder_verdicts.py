@@ -49,8 +49,8 @@ def lookalikes(folders: list) -> dict:
     """accession -> short reason, for filings whose every finder mention was dropped. Prints how many filings had a verdict, so an empty
     result is visible (no finder output found) rather than silent."""
     v = verdicts(folders)
-    look = {acc: "look-alike name: company-finder dropped all {} mention(s) in this filing{}".format(
-                e["dropped"], f" (e.g. {e['names'].most_common(1)[0][0]})" if e["names"] else "")
+    look = {acc: "look-alike name: company-finder judged every mention in this filing to be another company{}".format(   # no count: it counts
+                f" (e.g. {e['names'].most_common(1)[0][0]})" if e["names"] else "")                                  # passages, the sheet lists sentences
             for acc, e in v.items() if e["dropped"] and not e["kept"]}
     print(f"company-finder verdicts: {len(v)} filing(s) seen in {', '.join(folders)}; {len(look)} look-alike filing(s)"
           + ("" if v else f" (no finder output found under {px.FINDER_ROOT}: no filing is set aside)"), flush=True)
