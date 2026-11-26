@@ -34,6 +34,7 @@ LOC = {r["id"]: r for r in rd(ev / "locator.csv")}
 H = rd(ev / "holdings_from_evidence.csv")
 NP = rd(px.DUMPS / f"{co}_nport" / "nport_holdings.csv")
 FD = rd(px.OUT / co / "formd_offerings.csv")
+FD_ALL = rd(px.OUT / co / "formd_filings.csv")   # every filing (records.py); the earlier versions of each offering
 DOL = rd(px.INPUTS / co / "data" / "plan_participants.csv")   # the 401(k) plan only (records.py); dol_form5500.csv holds every plan
 LOOKF = {r["accession"]: r["why"] for r in rd(ev / "lookalike_filings.csv")}   # filings where company-finder dropped every mention (evidence_build)
 FONT, NAVY = "Arial", "1F3A5F"
@@ -92,7 +93,7 @@ def sheet(wb, title, cols, rows, side=()):
                 v = BAD.sub(" ", v)
             c = w.cell(j, i, v if v != "" else None)
             c.font = Font(name=FONT, size=9)
-            c.alignment = Alignment(vertical="top", wrap_text=k in ("ground", "found"))
+            c.alignment = Alignment(vertical="top", wrap_text=k in ("ground", "found", "earlier"))
             if k in side:
                 c.fill = PatternFill("solid", fgColor=BLUE if side[k] == "p" else GREEN)
             if k == "link" and v:
@@ -199,7 +200,26 @@ NC = [("#", "#", 5), ("rd", "Report date", 11), ("house", "Fund house (team data
       ("match", "Match", 26), ("link", "EDGAR filing", 10)]
 sheet(wb, "N-PORT holdings", NC, npr, {"units": "p", "units_w": "g", "val": "p", "val_w": "g"})
 
-# Form D offerings (structured records)
+# Form D offerings (structured records): one row per offering, its latest filing; the earlier filings of the same offering
+# (an amendment restates the whole offering) are listed in their own column with their own values, as filed
+EARLIER: dict = {}
+for f in FD_ALL:
+    if f.get("latest_of_offering") == "no":
+        EARLIER.setdefault(f["offering_key"], []).append(f)
+
+
+def earlier(r) -> str:
+    if not FD_ALL:
+        return "Not recorded: run sources/records.py again"
+    key = r.get("offering_key") or r.get("file_num") or r.get("previous_accession_number") or r["accession_number"]
+    xs = sorted(EARLIER.get(key, []), key=lambda f: (f["filing_date"], f["accession_number"]))
+    if not xs:
+        return "None: this is the offering's only filing"
+    return f"{len(xs)} earlier filing(s) of this offering (file no. {r.get('file_num') or '-'}), replaced by this one:\n" + "\n".join(
+        f"{f['submission_type']} filed {f['filing_date']}, accession {f['accession_number']}: first sale {f['sale_date']}, offered ${fmt(f['total_offering_amount'])}, "
+        f"sold ${fmt(f['total_amount_sold'])}, investors {exact(f['total_investors'])}" for f in xs)
+
+
 fdr = []
 for r in FD:
     acc = r["accession_number"]
@@ -208,11 +228,11 @@ for r in FD:
                     off=fmt(r["total_offering_amount"]), off_w=f"{fmt(r['total_offering_amount'])} (TOTALOFFERINGAMOUNT)" if r["total_offering_amount"] else "",
                     sold=fmt(r["total_amount_sold"]), sold_w=f"{fmt(r['total_amount_sold'])} (TOTALAMOUNTSOLD)" if r["total_amount_sold"] else "",
                     inv=exact(r["total_investors"]), inv_w=f"{exact(r['total_investors'])} (TOTALNUMBERALREADYINVESTED)" if r["total_investors"] else "",
-                    match="Yes: every value is the same as in the Form D record", ground=f"SEC Form D data set, accession {acc}",
+                    match="Yes: every value is the same as in the Form D record", ground=f"SEC Form D data set, accession {acc}", earlier=earlier(r),
                     link=f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc.replace('-', '')}/"))
 DC = [("#", "#", 5), ("filed", "Filed", 11), ("form", "Form", 7), ("acc", "Accession", 22), ("first", "First sale (pipeline)", 12), ("first_w", "First sale as filed", 24),
       ("off", "Offered $ (pipeline)", 15), ("off_w", "Offered as filed", 30), ("sold", "Sold $ (pipeline)", 15), ("sold_w", "Sold as filed", 26), ("inv", "Investors (pipeline)", 10),
-      ("inv_w", "Investors as filed", 30), ("match", "Match", 26), ("link", "EDGAR filing", 10)]
+      ("inv_w", "Investors as filed", 30), ("match", "Match", 26), ("earlier", "Earlier versions of this offering (replaced by this filing)", 70), ("link", "EDGAR filing", 10)]
 sheet(wb, "Form D offerings", DC, fdr, {"first": "p", "first_w": "g", "off": "p", "off_w": "g", "sold": "p", "sold_w": "g", "inv": "p", "inv_w": "g"})
 
 # DOL 401(k) (structured records)
@@ -330,7 +350,7 @@ for i, h in enumerate(head, 1):
 about = [("Holdings (filings)", "Fund filings (N-CSR, N-CSRS, N-2, 424B3, 10-Q, 10-K): schedules of investments", "Shares or principal, cost, fair value, undrawn commitment of each fund's position",
           "Rules: printed column header, unit and date; iXBRL tags; on converted PDF pages, the column label printed above each number", "Every number written in the table row; unit and date printed; two independent readings of the row agree; loan sums and N-PORT price consistent; equal to Form N-PORT where the fund files it"),
          ("N-PORT holdings", "SEC Form N-PORT (monthly fund holdings)", "Funds holding the company, units, value", "Structured record, no model", "Each value compared with the filing record, field by field"),
-         ("Form D offerings", "SEC Form D data set (the company's own notices)", "Date of first sale, amount offered and sold, investors", "Structured record, no model", "Each value compared with the filing record, field by field"),
+         ("Form D offerings", "SEC Form D data set (the company's own notices)", "Date of first sale, amount offered and sold, investors: one row per offering (its latest filing); the earlier filings of the same offering, which an amendment replaces, are listed with their own values in the 'Earlier versions' column", "Structured record, no model", "Each value compared with the filing record, field by field"),
          ("DOL 401(k)", "Department of Labor Form 5500 (or 5500-SF for a small plan): the company's 401(k) plan", "Plan participants (U.S. staff minimum)", "Structured record, no model", "Each number compared with the original DOL field"),
          ("All evidence", "Every filing that names the company", "Every mention found on a page: each table row, iXBRL tag, N-CEN field, sentence and name, and what happened to it",
           "Scan of every filing for the name; text read by the filing's structure (paragraph, cell, line of a converted PDF page)",

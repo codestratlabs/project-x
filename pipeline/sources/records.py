@@ -5,6 +5,7 @@
                        evidence steps use it to check a holding's per-share value)
   DOL Form 5500        work/inputs/<co>/data/dol_form5500.csv          plan participants (+ plan_participants.csv, dol_5500_sch_h.csv)
   Form D offerings     work/out/<co>/formd_offerings.csv               the company's own Form D notices, latest filing per offering
+                       work/out/<co>/formd_filings.csv                 every Form D filing (the earlier versions of each offering too)
 
     python pipeline/sources/records.py <company> --cik <10-digit CIK> [--formd-db FILE] [--employee-dir DIR]
 
@@ -132,11 +133,17 @@ def formd_offerings(db_path: Path, cik: str, out_csv: Path) -> dict:
     offerings: dict = {}
     for f in filings:
         key = f["file_num"] or f["previous_accession_number"] or f["accession_number"]
+        f["offering_key"] = key                    # the filings of one offering share it: an amendment restates the whole offering
         offerings[key] = f
     offs = sorted(offerings.values(), key=lambda f: (as_date(f["sale_date"]) or as_date(f["filing_date"])))
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     write_csv(out_csv, offs, list(offs[0].keys()) if offs else [])
-    return {out_csv.name: len(offs)}
+    kept = {f["accession_number"] for f in offs}
+    for f in filings:                              # every filing, so the workbook can show the earlier versions of each offering
+        f["latest_of_offering"] = "yes" if f["accession_number"] in kept else "no"
+    all_csv = out_csv.with_name("formd_filings.csv")
+    write_csv(all_csv, filings, list(filings[0].keys()) if filings else [])
+    return {out_csv.name: len(offs), all_csv.name: len(filings)}
 
 
 def main() -> int:
